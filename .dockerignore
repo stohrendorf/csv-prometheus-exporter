@@ -1,0 +1,5 @@
+.gitignore
+.gitlab-ci.yml
+Dockerfile
+scrapeconfig.yml
+scrapeconfig.example.yml

@@ -1,0 +1,31 @@
+global:
+  prefix: weblog # prefix:metric_name{labels...}
+  format: # based on "%h %l %u %t \"%r\" %>s %b"
+  - remote_host: label
+  - ~ # ignore remote logname; unnamed ignored column
+  - remote_user: label
+  - timestamp: ~ # ignore timestamp; named ignored column
+  - request_header: request_header # special parser that emits the labels "request_http_version", "request_uri" and "request_method"
+  - status: label
+  - body_bytes_sent: clf_int  # maps a single dash to zero, otherwise behaves like "int"
+
+local:
+- path: /var/log/apache/access_log.txt
+  environment: local
+
+ssh:
+  user: random.guy
+  password: password123
+  file: /var/log/apache/access_log.txt
+  connect-timeout: 5  # seconds between connection attempts to hosts
+  environments:
+    home:
+      hosts:
+      - 127.0.0.1
+    environment: home-2
+      user: another.guy # can be overridden per environment as needed
+      # password: supasecure
+      file: /var/log/apache/access_log.txt
+      # connect-timeout: 25
+      hosts:
+      - nirvana

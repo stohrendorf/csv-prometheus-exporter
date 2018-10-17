@@ -1,0 +1,5 @@
+venv/
+.idea/
+scrapeconfig.yml
+__pycache__/
+*.pyc
