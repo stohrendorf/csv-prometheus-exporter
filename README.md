@@ -34,6 +34,9 @@ which counts the request per label-tuples; don't use this as one of your metric 
 Place your `scrapeconfig.yml` in the folder you're starting `app.py` from;
 [see here for an example](./scrapeconfig.example.yml), showing all of its features.
 
+> You can override the filename (and location) of the scrape config by setting the environment
+> variable `SCRAPECONFIG`, e.g. `SCRAPECONFIG=/etc/scraper/foo.yml python3 /path/to/app.py`.
+
 ## A note about Proemtheus performance
 Performance matters, and the exported metrics are not usable immediately in most cases.  The following
 Prometheus rules have been tested in high-traffic situations, and sped up Prometheus queries immensely.

@@ -15,7 +15,7 @@ from flask import Flask, Response
 from parser import LogParser, request_header_reader, label_reader, int_reader, float_reader, clf_int_reader, Metric
 from prometheus import MetricsCollection
 
-scrape_config = yaml.load(open('scrapeconfig.yml'))
+scrape_config = yaml.load(open(os.environ.get('SCRAPECONFIG', 'scrapeconfig.yml')))
 
 app = Flask(__name__)
 
@@ -222,7 +222,7 @@ class SSHLogThread(threading.Thread):
                         print("Connect attempt to {} failed, not trying again | {}".format(self._host, e))
                         break
                     ssh_stdin, ssh_stdout, ssh_stderr = client.exec_command(
-                        'tail -n0 -f "{}" 2>/dev/null'.format(self._filename),
+                        'tail -n0 -F "{}" 2>/dev/null'.format(self._filename),
                         bufsize=1)
 
                     _parse_file(ssh_stdout, self._metrics, self._environment, self._readers)
