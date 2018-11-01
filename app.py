@@ -219,7 +219,7 @@ class SSHLogThread(threading.Thread):
                     except socket.timeout as e:
                         logging.getLogger().warning("Connect attempt to {} timed out, retrying".format(self._host))
                         continue
-                    except socket.error as e:
+                    except (socket.error, paramiko.SSHException) as e:
                         logging.getLogger().warning("Connect attempt to {} failed, not trying again".format(self._host),
                                                     exc_info=e)
                         break
