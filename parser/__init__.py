@@ -33,7 +33,7 @@ def request_header_reader() -> Callable[[Metric, str], None]:
             raise ParserError()
 
         entry.labels['request_method'] = request[0]
-        entry.labels['request_uri'] = request[1]
+        entry.labels['request_uri'] = request[1].split('?')[0]
         entry.labels['request_http_version'] = request[2]
 
     return p
