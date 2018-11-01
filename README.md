@@ -50,12 +50,12 @@ groups:
 - name: access_logs_precompute
   interval: 5s
   rules:
-  - record: "prefix:request_count_per_second"
-    expr: "irate(prefix:request_count[1m])"
+  - record: "prefix:lines_parsed_per_second"
+    expr: "irate(prefix:lines_parsed_total[1m])"
   - record: "prefix:body_bytes_sent_per_second"
-    expr: "irate(prefix:body_bytes_sent[1m])"
+    expr: "irate(prefix:body_bytes_sent_total[1m])"
   - record: "prefix:request_length_per_second"
-    expr: "irate(prefix:request_length[1m])"
+    expr: "irate(prefix:request_length_total[1m])"
   - record: "prefix:request_time_per_second"
-    expr: "irate(prefix:request_time[1m])"
+    expr: "irate(prefix:request_time_total[1m])"
 ```
