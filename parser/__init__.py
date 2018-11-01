@@ -18,16 +18,6 @@ class Metric:
         self.labels = labels  # type: Dict[str, str]
         self.metrics = dict()  # type: Dict[str, Union[int, float]]
 
-    def get_label_str(self):
-        return ','.join('{}="{}"'.format(k, v.replace('"', '\\"')) for k, v in self.labels.items())
-
-    def get_metrics(self) -> Dict[str, Union[int, float]]:
-        label_str = self.get_label_str()
-        return {
-            '{}{{{}}}'.format(k, label_str): v
-            for k, v in self.metrics.items()
-        }
-
 
 def label_reader(name: str) -> Callable[[Metric, str], None]:
     def p(entry: Metric, value: str):
@@ -49,31 +39,21 @@ def request_header_reader() -> Callable[[Metric, str], None]:
     return p
 
 
-def int_reader(name: str) -> Callable[[Metric, str], None]:
-    def p(entry: Metric, value: str):
-        try:
-            entry.metrics[name] = int(value)
-        except:
-            raise ParserError()
-
-    return p
-
-
-def clf_int_reader(name: str) -> Callable[[Metric, str], None]:
+def clf_number_reader(name: str) -> Callable[[Metric, str], None]:
     def p(entry: Metric, value: str):
         if value == '-':
-            entry.metrics[name] = 0
+            entry.metrics[name] = 0.0
             return
 
         try:
-            entry.metrics[name] = int(value)
+            entry.metrics[name] = float(value)
         except:
             raise ParserError()
 
     return p
 
 
-def float_reader(name: str) -> Callable[[Metric, str], None]:
+def number_reader(name: str) -> Callable[[Metric, str], None]:
     def p(entry: Metric, value: str):
         try:
             entry.metrics[name] = float(value)

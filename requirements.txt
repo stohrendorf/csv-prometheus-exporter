@@ -1,4 +1,4 @@
-flask
 paramiko
 pyyaml
 typing
+prometheus_client

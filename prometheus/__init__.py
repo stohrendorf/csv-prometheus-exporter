@@ -1,20 +1,20 @@
 import re
 from typing import Union, Dict
+from prometheus_client import Counter
+from prometheus_client.core import _LabelWrapper
 
 
 class MetricsCollection:
     def __init__(self, prefix: str):
-        if re.fullmatch('[a-z][a-z0-9_]*', prefix) is None:
+        if re.fullmatch('[a-zA-Z_:][a-zA-Z0-9_:]*', prefix) is None:
             raise RuntimeError('Invalid metrics prefix')
 
-        self._metrics = dict()  # type: Dict[str, Union[int, float]]
+        self._counters = dict()  # type: Dict[str, _LabelWrapper]
         self._prefix = prefix
 
-    def add(self, name: str, value: Union[float, str]):
-        if name not in self._metrics:
-            self._metrics[name] = value
-        else:
-            self._metrics[name] += value
+    def inc_counter(self, name: str, documentation: str, labels: Dict[str, str], amount: Union[int, float] = 1):
+        full_name = '{}:{}'.format(self._prefix, name)
 
-    def to_text(self) -> str:
-        return '\n'.join(['{}:{} {}'.format(self._prefix, a, b) for a, b in self._metrics.items()])
+        if full_name not in self._counters:
+            self._counters[full_name] = Counter(full_name, documentation, labels.keys())
+        self._counters[full_name].labels(**labels).inc(amount)

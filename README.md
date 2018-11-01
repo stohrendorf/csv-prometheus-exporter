@@ -19,25 +19,27 @@ format: # based on "%h %l %u %t \"%r\" %>s %b"
 - ~ # ignore timestamp
 - request_header: request_header # special parser that emits the labels "request_http_version", "request_uri" and "request_method"
 - status: label
-- body_bytes_sent: clf_int  # maps a single dash to zero, otherwise behaves like "int"
+- body_bytes_sent: clf_number  # maps a single dash to zero, otherwise behaves like "number"
 ```
 
 * Names are either used as metric names or label names.
 * All non-labels (using numeric parsers) are accumulated.  This means that the sampling frequency does not have any
   impact on the metrics.
-* For metrics, use any of these parsers: `int`, `float` or `clf_int`.
+* For metrics, use any of these parsers: `number` or `clf_number`.
 * A special parser `request_header` is described above.
 
-_Please note that there is a special, internal metric `request_count`
-which counts the request per label-tuples; don't use this as one of your metric names!_
+> Please not the following:
+>   1. Every metric has the label `environment` - do not use this name for one of your labels.
+>   2. `parser_errors` and `lines_parsed` are reserved metric names.
+>   3. Every metric you provide will create the Prometheus metrics `<name>_total` and `<name>_created`;
+>      these contain the sum of the values and the unix timestamp when they were first seen.
+>   4. Additional process information will also be provided, but without the prefix specified in the configuration.
 
-Place your `scrapeconfig.yml` in the folder you're starting `app.py` from;
-[see here for an example](./scrapeconfig.example.yml), showing all of its features.
+Place your `scrapeconfig.yml` either in the folder you're starting `app.py` from, or
+provide the environment variable `SCRAPECONFIG` with a config file path;
+[see here for a config file example](./scrapeconfig.example.yml), showing all of its features.
 
-> You can override the filename (and location) of the scrape config by setting the environment
-> variable `SCRAPECONFIG`, e.g. `SCRAPECONFIG=/etc/scraper/foo.yml python3 /path/to/app.py`.
-
-## A note about Proemtheus performance
+## A note about Prometheus performance
 Performance matters, and the exported metrics are not usable immediately in most cases.  The following
 Prometheus rules have been tested in high-traffic situations, and sped up Prometheus queries immensely.
 

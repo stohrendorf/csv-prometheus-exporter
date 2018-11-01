@@ -1,5 +1,6 @@
 import _thread
 import glob
+import logging
 import os
 import socket
 import threading
@@ -10,14 +11,12 @@ from typing import IO, Dict, List, Callable
 
 import paramiko
 import yaml
-from flask import Flask, Response
+from prometheus_client import start_http_server
 
-from parser import LogParser, request_header_reader, label_reader, int_reader, float_reader, clf_int_reader, Metric
+from parser import LogParser, request_header_reader, label_reader, number_reader, clf_number_reader, Metric
 from prometheus import MetricsCollection
 
 scrape_config = yaml.load(open(os.environ.get('SCRAPECONFIG', 'scrapeconfig.yml')))
-
-app = Flask(__name__)
 
 
 class Pygtail(IO):
@@ -80,8 +79,6 @@ class Pygtail(IO):
             if stat(rotated_filename).st_ino == self._logfile_inode:
                 return rotated_filename
 
-            # if the inode hasn't changed, then the file shrank; this is expected with copytruncate,
-            # otherwise print a warning
             if stat(self.filename).st_ino == self._logfile_inode:
                 return rotated_filename
 
@@ -143,24 +140,28 @@ class Pygtail(IO):
         return line
 
 
-@app.route('/metrics')
-def metrics_api():
-    return Response(_metrics.to_text(), mimetype='text/plain')
-
-
 def _parse_file(stdout: IO, metrics: MetricsCollection, environment: str, readers: List[Callable[[Metric, str], None]]):
     if not environment:
         environment = 'N/A'
 
     for entry in LogParser(stdout, readers, {'environment': environment}).read_all():
         if entry is None:
-            metrics.add('parser_error_count', 1)
+            metrics.inc_counter(name='parser_errors',
+                                documentation='Number of lines which could not be parsed',
+                                labels={'environment': environment})
             continue
 
-        metrics.add('request_count{{{}}}'.format(entry.get_label_str()), 1)
+        metrics.inc_counter(name='lines_parsed',
+                            documentation='Number of successfully parsed lines',
+                            labels=entry.labels)
 
-        for k, v in entry.get_metrics().items():
-            metrics.add(k, v)
+        for name, amount in entry.metrics.items():
+            metrics.inc_counter(
+                name=name,
+                documentation='Sum of "{}"'.format(name),
+                labels=entry.labels,
+                amount=amount
+            )
 
 
 class LocalLogThread(threading.Thread):
@@ -216,10 +217,11 @@ class SSHLogThread(threading.Thread):
                                        username=self._user, password=self._password,
                                        timeout=self._connect_timeout)
                     except socket.timeout as e:
-                        print("Connect attempt to {} timed out, retrying | {}".format(self._host, e))
+                        logging.getLogger().warning("Connect attempt to {} timed out, retrying".format(self._host))
                         continue
                     except socket.error as e:
-                        print("Connect attempt to {} failed, not trying again | {}".format(self._host, e))
+                        logging.getLogger().warning("Connect attempt to {} failed, not trying again".format(self._host),
+                                                    exc_info=e)
                         break
                     ssh_stdin, ssh_stdout, ssh_stderr = client.exec_command(
                         'tail -n0 -F "{}" 2>/dev/null'.format(self._filename),
@@ -228,7 +230,7 @@ class SSHLogThread(threading.Thread):
                     _parse_file(ssh_stdout, self._metrics, self._environment, self._readers)
                     sleep(1)
         except Exception as e:
-            print("Failed", e)
+            logging.getLogger().warning("SSH failure", exc_info=e)
             _thread.interrupt_main()
             exit(1)
 
@@ -248,10 +250,14 @@ def parse_config():
             readers.append(None)
             continue
 
+        if tp == 'label' and name == 'environment':
+            raise ValueError("'environment' is a reserved label name")
+        elif tp != 'label' and name in ('parser_errors', 'lines_parsed'):
+            raise ValueError("'{}' is a reserved metric name".format(name))
+
         reader = {
-            'int': int_reader,
-            'clf_int': clf_int_reader,
-            'float': float_reader,
+            'number': number_reader,
+            'clf_number': clf_number_reader,
             'request_header': lambda _: request_header_reader(),
             'label': label_reader
         }[tp](name)
@@ -299,5 +305,8 @@ def parse_config():
 
 _threads, _metrics = parse_config()
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0')
+start_http_server(5000)
+
+while True:
+    logging.getLogger().debug('Sleep...')
+    sleep(1)  # dumb loop because all threads are daemonized
