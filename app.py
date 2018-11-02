@@ -164,6 +164,20 @@ def _parse_file(stdout: IO, metrics: MetricsCollection, environment: str, reader
             )
 
 
+class MetricsGCCaller(threading.Thread):
+    def __init__(self, metrics: MetricsCollection, interval: float):
+        super().__init__()
+        assert interval > 0
+        self._metrics = metrics
+        self._interval = interval
+
+    def run(self):
+        while True:
+            sleep(self._interval)
+            logging.getLogger().info('Doing metrics garbage collection')
+            self._metrics.gc()
+
+
 class LocalLogThread(threading.Thread):
     def __init__(self, metrics: MetricsCollection, filename: str, environment: str,
                  readers: List[Callable[[Metric, str], None]]):
@@ -263,9 +277,10 @@ def parse_config():
         }[tp](name)
         readers.append(reader)
 
-    metrics = MetricsCollection(prefix)
+    ttl = scrape_config['global']['ttl']
+    metrics = MetricsCollection(prefix, ttl)
 
-    threads = []
+    threads = [MetricsGCCaller(metrics, ttl)]
 
     if 'local' in scrape_config:
         for file in scrape_config['local']:
@@ -303,6 +318,7 @@ def parse_config():
     return threads, metrics
 
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)-8s [%(module)s] %(message)s')
 _threads, _metrics = parse_config()
 
 start_http_server(5000)
