@@ -31,9 +31,8 @@ class _CounterGC:
                     last_used = counter_ttl[1]
                     if last_used + self._ttl < now:
                         labels = dict(key[1])
-                        values = [labels[lbl] for lbl in counter._labelnames]
+                        values = map(lambda lbl: labels[lbl], counter._labelnames)
                         counter.remove(*values)
-                        counter.labels(**labels)
                         dropped += 1
                     else:
                         cleaned[key] = counter_ttl
