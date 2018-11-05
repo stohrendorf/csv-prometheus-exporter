@@ -1,11 +1,9 @@
 import _thread
-import glob
 import logging
 import os
 import socket
+import subprocess
 import threading
-from os import stat
-from os.path import exists
 from time import sleep
 from typing import IO, Dict, List, Callable
 
@@ -17,127 +15,6 @@ from parser import LogParser, request_header_reader, label_reader, number_reader
 from prometheus import MetricsCollection
 
 scrape_config = yaml.load(open(os.environ.get('SCRAPECONFIG', 'scrapeconfig.yml')))
-
-
-class Pygtail(IO):
-    def __init__(self, filename: str):
-        self.filename = filename
-        self._logfile_inode = stat(self.filename).st_ino
-        self._fh = None
-        self._rotated_logfile = None
-
-    def __del__(self):
-        if self._filehandle():
-            self._filehandle().close()
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        """
-        Return the next line in the file, updating the offset.
-        """
-        try:
-            return self._get_next_line()
-        except StopIteration:
-            # we've reached the end of the file; if we're processing the
-            # rotated log file or the file has been renamed, we can continue with the actual file; otherwise
-            # update the offset file
-            if self._is_new_file():
-                self._rotated_logfile = None
-                self._fh.close()
-                # open up current logfile and continue
-                return self._get_next_line()
-            else:
-                raise
-
-    def _is_closed(self):
-        if not self._fh:
-            return True
-
-        return self._fh.closed
-
-    def _filehandle(self):
-        """
-        Return a filehandle to the file being tailed, with the position set
-        to the current offset.
-        """
-        if not self._fh or self._is_closed():
-            filename = self._rotated_logfile or self.filename
-            self._fh = open(filename, "r", buffering=1)
-            self._fh.seek(0, os.SEEK_END)
-
-        return self._fh
-
-    def _determine_rotated_logfile(self):
-        """
-        We suspect the logfile has been rotated, so try to guess what the
-        rotated filename is, and return it.
-        """
-        rotated_filename = self._check_rotated_filename_candidates()
-        if rotated_filename and exists(rotated_filename):
-            if stat(rotated_filename).st_ino == self._logfile_inode:
-                return rotated_filename
-
-            if stat(self.filename).st_ino == self._logfile_inode:
-                return rotated_filename
-
-        return None
-
-    def _check_rotated_filename_candidates(self):
-        """
-        Check for various rotated logfile filename patterns and return the first
-        match we find.
-        """
-        # savelog(8)
-        candidate = "%s.0" % self.filename
-        if (exists(candidate) and exists("%s.1.gz" % self.filename) and
-                (stat(candidate).st_mtime > stat("%s.1.gz" % self.filename).st_mtime)):
-            return candidate
-
-        # logrotate(8)
-        # with delaycompress
-        candidate = "%s.1" % self.filename
-        if exists(candidate):
-            return candidate
-
-        # without delaycompress
-        candidate = "%s.1.gz" % self.filename
-        if exists(candidate):
-            return candidate
-
-        rotated_filename_patterns = (
-            # logrotate dateext rotation scheme - `dateformat -%Y%m%d` + with `delaycompress`
-            "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]",
-            # logrotate dateext rotation scheme - `dateformat -%Y%m%d` + without `delaycompress`
-            "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].gz",
-            # logrotate dateext rotation scheme - `dateformat -%Y%m%d-%s` + with `delaycompress`
-            "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]",
-            # logrotate dateext rotation scheme - `dateformat -%Y%m%d-%s` + without `delaycompress`
-            "-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].gz",
-            # for TimedRotatingFileHandler
-            ".[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]",
-        )
-        for rotated_filename_pattern in rotated_filename_patterns:
-            candidates = glob.glob(self.filename + rotated_filename_pattern)
-            if candidates:
-                candidates.sort()
-                return candidates[-1]  # return most recent
-
-        # no match
-        return None
-
-    def _is_new_file(self):
-        # Processing rotated logfile or at the end of current file which has been renamed
-        return self._rotated_logfile or \
-               self._filehandle().tell() == os.fstat(self._filehandle().fileno()).st_size and \
-               os.fstat(self._filehandle().fileno()).st_ino != stat(self.filename).st_ino
-
-    def _get_next_line(self):
-        line = self._filehandle().readline()
-        if not line:
-            raise StopIteration
-        return line
 
 
 def _parse_file(stdout: IO, metrics: MetricsCollection, environment: str, readers: List[Callable[[Metric, str], None]]):
@@ -190,15 +67,14 @@ class LocalLogThread(threading.Thread):
     def run(self):
         while True:
             try:
-                tail_file = Pygtail(self._filename)  # type: IO
-                break
-            except:
+                with subprocess.Popen(args=['tail', '-F', '-n0', self._filename],
+                                      stdout=subprocess.PIPE,
+                                      stderr=subprocess.DEVNULL,
+                                      universal_newlines=True) as process:
+                    _parse_file(process.stdout, self._metrics, self._environment, self._readers)
+            except Exception as e:
+                logging.getLogger().warning('Failed to tail {}'.format(self._filename), exc_info=e)
                 sleep(5)
-                continue
-
-        while True:
-            _parse_file(tail_file, self._metrics, self._environment, self._readers)
-            sleep(1)
 
 
 class SSHLogThread(threading.Thread):
@@ -230,7 +106,7 @@ class SSHLogThread(threading.Thread):
                         client.connect(hostname=self._host, port=22,
                                        username=self._user, password=self._password,
                                        timeout=self._connect_timeout)
-                    except socket.timeout as e:
+                    except socket.timeout:
                         logging.getLogger().warning("Connect attempt to {} timed out, retrying".format(self._host))
                         continue
                     except (socket.error, paramiko.SSHException) as e:
