@@ -13,7 +13,7 @@ class _CounterGC:
         self._ttl = ttl
         # (metric_name, labels) = (counter, last_usage)
         self._counters_ttl = {}  # type: Dict[ Tuple[str, FrozenSet[Tuple[str, str]]], Tuple[_LabelWrapper, float] ]
-        self._counters = {}  # type: Dict[ str, Tuple[_LabelWrapper, float] ]
+        self._counters = {}  # type: Dict[ str, _LabelWrapper ]
         self._lock = RLock()
         self._active_metrics = Gauge(name='scraper_active_metrics',
                                      documentation='Number of non-stale (tracked) metrics')
