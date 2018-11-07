@@ -10,19 +10,28 @@ from wsgiref.simple_server import make_server
 
 import paramiko
 import yaml
-from prometheus_client import make_wsgi_app, REGISTRY
+from prometheus_client import make_wsgi_app, REGISTRY, Counter
+from prometheus_client.core import _LabelWrapper
 
 from parser import LogParser, request_header_reader, label_reader, number_reader, clf_number_reader, Metric
 from prometheus import MetricsCollection
 
 scrape_config = yaml.load(open(os.environ.get('SCRAPECONFIG', 'scrapeconfig.yml')))
 
+_in_bytes = Counter('in_bytes', 'Amount of bytes read from remote', ['environment'])  # type: _LabelWrapper
+
 
 def _parse_file(stdout: IO, metrics: MetricsCollection, environment: str, readers: List[Callable[[Metric, str], None]]):
     if not environment:
         environment = 'N/A'
 
+    prev_pos = stdout.tell()
+    in_bytes_env = _in_bytes.labels(environment=environment)  # type: Counter
     for entry in LogParser(stdout, readers, {'environment': environment}).read_all():
+        current_pos = stdout.tell()
+        in_bytes_env.inc(current_pos - prev_pos)
+        prev_pos = current_pos
+
         if entry is None:
             metrics.inc_counter(name='parser_errors',
                                 documentation='Number of lines which could not be parsed',
@@ -143,7 +152,7 @@ def parse_config():
 
         if tp == 'label' and name == 'environment':
             raise ValueError("'environment' is a reserved label name")
-        elif tp != 'label' and name in ('parser_errors', 'lines_parsed'):
+        elif tp != 'label' and name in ('parser_errors', 'lines_parsed', 'in_bytes'):
             raise ValueError("'{}' is a reserved metric name".format(name))
 
         reader = {
