@@ -6,10 +6,11 @@ import subprocess
 import threading
 from time import sleep
 from typing import IO, Dict, List, Callable
+from wsgiref.simple_server import make_server
 
 import paramiko
 import yaml
-from prometheus_client import start_http_server
+from prometheus_client import make_wsgi_app, REGISTRY
 
 from parser import LogParser, request_header_reader, label_reader, number_reader, clf_number_reader, Metric
 from prometheus import MetricsCollection
@@ -191,14 +192,16 @@ def parse_config():
         thread.daemon = True
         thread.start()
 
-    return threads, metrics
-
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)-8s [%(module)s] %(message)s')
-_threads, _metrics = parse_config()
+parse_config()
 
-start_http_server(5000)
 
-while True:
-    logging.getLogger().debug('Sleep...')
-    sleep(1)  # dumb loop because all threads are daemonized
+def serve_me():
+    app = make_wsgi_app(REGISTRY)
+    httpd = make_server('', 5000, app)
+    t = threading.Thread(target=httpd.serve_forever)
+    t.start()
+
+
+serve_me()
