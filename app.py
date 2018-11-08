@@ -88,8 +88,14 @@ class LocalLogThread(threading.Thread):
 
 
 class SSHLogThread(threading.Thread):
-    def __init__(self, metrics: MetricsCollection, filename: str, environment: str,
-                 readers: List[Callable[[Metric, str], None]], host: str, user: str, password: str,
+    def __init__(self,
+                 metrics: MetricsCollection,
+                 filename: str,
+                 environment: str,
+                 readers: List[Callable[[Metric, str], None]],
+                 host: str,
+                 user: str,
+                 password: str,
                  connect_timeout: float):
         super().__init__()
         self._metrics = metrics
