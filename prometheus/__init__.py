@@ -3,8 +3,13 @@ import re
 import time
 from threading import RLock
 from typing import Union, Dict, Tuple, FrozenSet
-from prometheus_client import Counter, Summary
+from prometheus_client import Counter, Summary, REGISTRY
 from prometheus_client.core import _LabelWrapper, Gauge
+
+_active_metrics = Gauge(name='scraper_active_metrics',
+                        documentation='Number of non-stale (tracked) metrics')
+_gc_duration = Summary('scraper_gc_duration_seconds',
+                       documentation='Duration of stale metric removal')
 
 
 class _CounterGC:
@@ -15,13 +20,9 @@ class _CounterGC:
         self._counters_ttl = {}  # type: Dict[ Tuple[str, FrozenSet[Tuple[str, str]]], Tuple[_LabelWrapper, float] ]
         self._counters = {}  # type: Dict[ str, _LabelWrapper ]
         self._lock = RLock()
-        self._active_metrics = Gauge(name='scraper_active_metrics',
-                                     documentation='Number of non-stale (tracked) metrics')
-        self._gc_duration = Summary('scraper_gc_duration_seconds',
-                                    documentation='Duration of stale metric removal')
 
     def gc(self):
-        with self._gc_duration.time():
+        with _gc_duration.time():
             now = time.time()
             with self._lock:
                 cleaned = {}  # type: Dict[ Tuple[str, FrozenSet[Tuple[str, str]]], Tuple[_LabelWrapper, float] ]
@@ -38,7 +39,7 @@ class _CounterGC:
                         cleaned[key] = counter_ttl
                 self._counters_ttl = cleaned
 
-            self._active_metrics.set(len(self._counters_ttl))
+            _active_metrics.set(len(self._counters_ttl))
             if dropped > 0:
                 logging.getLogger().info('Dropped {} metric(s) due to exceeding TTL'.format(dropped))
 
@@ -51,22 +52,42 @@ class _CounterGC:
 
             key = (full_name, frozenset(labels.items()))
             if key not in self._counters_ttl:
-                self._active_metrics.inc()
+                _active_metrics.inc()
             self._counters_ttl[key] = (counter, time.time())
             counter.labels(**labels).inc(amount)
 
+    def clear(self):
+        with self._lock:
+            for counter in self._counters.values():
+                REGISTRY.unregister(counter)
+            self._counters = {}
 
-class MetricsCollection:
-    def __init__(self, prefix: str, ttl: float):
-        if re.fullmatch('[a-zA-Z_:][a-zA-Z0-9_:]*', prefix) is None:
-            raise RuntimeError('Invalid metrics prefix')
+    def set_ttl(self, ttl):
+        assert ttl > 0
+        self._ttl = ttl
 
-        self._counters = _CounterGC(ttl)
-        self._prefix = prefix
 
-    def inc_counter(self, name: str, documentation: str, labels: Dict[str, str], amount: Union[int, float] = 1):
-        full_name = '{}:{}'.format(self._prefix, name)
-        self._counters.inc(full_name, documentation, labels, amount)
+_counters = _CounterGC(1)
 
-    def gc(self):
-        self._counters.gc()
+_metrics_prefix = None
+
+
+def gc():
+    _counters.gc()
+
+
+def set_prefix(prefix: str):
+    if re.fullmatch('[a-zA-Z_:][a-zA-Z0-9_:]*', prefix) is None:
+        raise RuntimeError('Invalid metrics prefix')
+
+    global _metrics_prefix
+    _metrics_prefix = prefix
+
+
+def set_ttl(ttl: float):
+    _counters.set_ttl(ttl)
+
+
+def inc_counter(name: str, documentation: str, labels: Dict[str, str], amount: Union[int, float] = 1):
+    full_name = '{}:{}'.format(_metrics_prefix, name)
+    _counters.inc(full_name, documentation, labels, amount)
