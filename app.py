@@ -141,18 +141,15 @@ def _load_scrapers_config(threads: Dict[str, StoppableThread], scrape_config: Di
     if 'ssh' in scrape_config:
         loaded_ids.extend(_load_ssh_scrapers_config(threads, scrape_config['ssh'], readers))
 
-    new_threads = {}
     stop_threads = []
     for thread_id, thread in threads.items():
         if thread_id not in loaded_ids:
             logging.getLogger().info('Scrape target "{}" will be removed'.format(thread_id))
             thread.stop_me = True
             stop_threads.append(thread)
-        else:
-            logging.getLogger().info('New scrape target "{}" found'.format(thread_id))
-            new_threads[thread_id] = thread
-            if not thread.is_alive():
-                thread.start()
+        elif not thread.is_alive():
+            logging.getLogger().info('New scrape target "{}" added'.format(thread_id))
+            thread.start()
 
     for thread in stop_threads:
         thread.join()
