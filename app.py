@@ -1,60 +1,17 @@
-import _thread
 import logging
 import os
-import socket
 import subprocess
 import threading
 from time import sleep
-from typing import IO, Dict, List, Callable, Tuple, Optional
+from typing import Dict, List, Iterable, Callable
 from wsgiref.simple_server import make_server
 
-import paramiko
 import yaml
-from prometheus_client import make_wsgi_app, REGISTRY, Counter
-from prometheus_client.core import _LabelWrapper
+from prometheus_client import make_wsgi_app, REGISTRY
 
-from parser import LogParser, request_header_reader, label_reader, number_reader, clf_number_reader, Metric
 import prometheus
-
-_in_bytes = Counter('in_bytes', 'Amount of bytes read from remote', ['environment'])  # type: _LabelWrapper
-
-_READ_TIMEOUT = 5
-
-
-def _parse_file(stdout: IO, environment: str, readers: List[Callable[[Metric, str], None]]):
-    if not environment:
-        environment = 'N/A'
-
-    prev_pos = stdout.tell()
-    in_bytes_env = _in_bytes.labels(environment=environment)  # type: Counter
-    for entry in LogParser(stdout, readers, {'environment': environment}).read_all():
-        current_pos = stdout.tell()
-        in_bytes_env.inc(current_pos - prev_pos)
-        prev_pos = current_pos
-
-        if entry is None:
-            prometheus.inc_counter(name='parser_errors',
-                                   documentation='Number of lines which could not be parsed',
-                                   labels={'environment': environment})
-            continue
-
-        prometheus.inc_counter(name='lines_parsed',
-                               documentation='Number of successfully parsed lines',
-                               labels=entry.labels)
-
-        for name, amount in entry.metrics.items():
-            prometheus.inc_counter(
-                name=name,
-                documentation='Sum of "{}"'.format(name),
-                labels=entry.labels,
-                amount=amount
-            )
-
-
-class StoppableThread(threading.Thread):
-    def __init__(self):
-        super().__init__()
-        self.stop_me = False
+from logscrape import StoppableThread, LocalLogThread, SSHLogThread
+from parser import request_header_reader, label_reader, number_reader, clf_number_reader, Metric
 
 
 class MetricsGCCaller(StoppableThread):
@@ -70,113 +27,74 @@ class MetricsGCCaller(StoppableThread):
             prometheus.gc()
 
 
-class LocalLogThread(StoppableThread):
-    def __init__(self, filename: str, environment: str, readers: List[Callable[[Metric, str], None]]):
-        super().__init__()
-        self._filename = filename
-        self._environment = environment
-        self._readers = readers
-
-    def run(self):
-        while not self.stop_me:
-            try:
-                with subprocess.Popen(args=['tail', '-F', '-n0', self._filename],
-                                      stdout=subprocess.PIPE,
-                                      stderr=subprocess.DEVNULL,
-                                      universal_newlines=True,
-                                      timeout=_READ_TIMEOUT) as process:
-                    _parse_file(process.stdout, self._environment, self._readers)
-            except subprocess.TimeoutExpired:
-                pass
-            except Exception as e:
-                logging.getLogger().warning('Failed to tail {}'.format(self._filename), exc_info=e)
-                sleep(5)
-
-
-class SSHLogThread(StoppableThread):
-    def __init__(self,
-                 filename: str,
-                 environment: str,
-                 readers: List[Callable[[Metric, str], None]],
-                 host: str,
-                 user: str,
-                 password: str,
-                 connect_timeout: float):
-        super().__init__()
-        self._filename = filename
-        self._host = host
-        self._user = user
-        self._password = password
-        self._environment = environment
-        self._readers = readers
-        if connect_timeout is None:
-            self._connect_timeout = None
-        elif isinstance(connect_timeout, float):
-            self._connect_timeout = connect_timeout
-        else:
-            self._connect_timeout = float(connect_timeout)
-
-    def run(self):
-        try:
-            while not self.stop_me:
-                with paramiko.SSHClient() as client:
-                    client.load_system_host_keys()
-                    client.set_missing_host_key_policy(paramiko.WarningPolicy())
-                    try:
-                        client.connect(hostname=self._host, port=22,
-                                       username=self._user, password=self._password,
-                                       timeout=self._connect_timeout)
-                    except socket.timeout:
-                        logging.getLogger().warning("Connect attempt to {} timed out, retrying".format(self._host))
-                        continue
-                    except (socket.error, paramiko.SSHException) as e:
-                        logging.getLogger().warning("Connect attempt to {} failed, not trying again".format(self._host),
-                                                    exc_info=e)
-                        break
-                    try:
-                        ssh_stdin, ssh_stdout, ssh_stderr = client.exec_command(
-                            'tail -n0 -F "{}" 2>/dev/null'.format(self._filename),
-                            bufsize=1, timeout=_READ_TIMEOUT)
-                        _parse_file(ssh_stdout, self._environment, self._readers)
-                    except socket.timeout:
-                        continue
-                    sleep(1)
-        except Exception as e:
-            logging.getLogger().warning("SSH failure", exc_info=e)
-            _thread.interrupt_main()
-            exit(1)
-
-
-def _stop_all_threads(threads: List[StoppableThread]):
-    for thread in threads:
-        thread.stop_me = True
-    for thread in threads:
-        thread.join()
-
-
-def read_and_load_config(threads: List[StoppableThread]) -> Tuple[List[StoppableThread], Optional[int]]:
+def _read_core_config():
     scrape_config_filename = os.environ.get('SCRAPECONFIG', 'scrapeconfig.yml')
     scrape_config = yaml.load(open(scrape_config_filename))
+    readers = _load_readers_config(scrape_config)
+
     config_reload_interval = scrape_config.get('reload-interval', None)
     if config_reload_interval is not None:
-        config_reload_interval = int(config_reload_interval)
+        config_reload_interval = float(config_reload_interval)
 
     scrape_config_script = scrape_config.get('script', None)
-    if scrape_config_script is not None:
-        logging.getLogger().info('Reading config from script {}...'.format(scrape_config_script))
-        scrape_config_script = os.path.expandvars(scrape_config_script)
-        script_result = subprocess.check_output(scrape_config_script, shell=True).decode(
-            'utf-8')  # type: str
 
-        _stop_all_threads(threads)
-        return load_config(yaml.load(script_result)), config_reload_interval
-
-    _stop_all_threads(threads)
-    return load_config(scrape_config), config_reload_interval
+    return readers, scrape_config_script, config_reload_interval, scrape_config
 
 
-def load_config(scrape_config: dict) -> List[StoppableThread]:
-    prefix = scrape_config['global']['prefix']
+def _load_from_script(threads: Dict[str, StoppableThread], scrape_config_script: str, readers):
+    script_result = subprocess.check_output(scrape_config_script, shell=True).decode(
+        'utf-8')  # type: str
+    scrape_config = yaml.load(script_result)
+
+    _load_scrapers_config(threads, scrape_config, readers)
+
+
+def _load_local_scrapers_config(threads: Dict[str, StoppableThread], config: Iterable[Dict], readers: List[Callable[[Metric, str], None]]) -> List[str]:
+    ids = []
+    for entry in config:
+        target_id = 'local://{}'.format(entry['path'])
+        ids.append(target_id)
+        if target_id in threads:
+            logging.getLogger().warning('Ignoring duplicate scrape target "{}"'.format(target_id))
+            continue
+        threads[target_id] = LocalLogThread(filename=entry['path'],
+                                            environment=entry.get('environment', None),
+                                            readers=readers)
+    return ids
+
+
+def _load_ssh_scrapers_config(threads: Dict[str, StoppableThread],
+                              config: Dict[str, Dict],
+                              readers: List[Callable[[Metric, str], None]]) -> List[str]:
+    ids = []
+    default_file = config.get('file', None)
+    default_user = config.get('user', None)
+    default_password = config.get('password', None)
+    default_connect_timeout = config.get('connect-timeout', None)
+    for env_name, env_config in config['environments'].items():
+        hosts = env_config['hosts']
+        if not isinstance(hosts, list):
+            hosts = [hosts]
+
+        for host in hosts:
+            target_id = 'ssh://{}/{}'.format(host, env_config.get('file', default_file))
+            ids.append(target_id)
+            if target_id in threads:
+                logging.getLogger().warning('Ignoring duplicate scrape target "{}"'.format(target_id))
+                continue
+            threads[target_id] = SSHLogThread(
+                filename=env_config.get('file', default_file),
+                environment=env_name,
+                readers=readers,
+                host=host,
+                user=env_config.get('user', default_user),
+                password=env_config.get('password', default_password),
+                connect_timeout=env_config.get('connect-timeout', default_connect_timeout)
+            )
+    return ids
+
+
+def _load_readers_config(scrape_config: Dict) -> List[Callable[[Metric, str], None]]:
     readers = []
     for fmt_entry in scrape_config['global']['format']:
         if fmt_entry is None:
@@ -203,43 +121,34 @@ def load_config(scrape_config: dict) -> List[StoppableThread]:
         }[tp](name)
         readers.append(reader)
 
-    ttl = scrape_config['global']['ttl']
-    prometheus.set_prefix(prefix)
-    prometheus.set_ttl(ttl)
+    prometheus.set_prefix(scrape_config['global']['prefix'])
+    prometheus.set_ttl(scrape_config['global']['ttl'])
 
-    threads = []  # type: List[StoppableThread]
+    return readers
 
+
+def _load_scrapers_config(threads: Dict[str, StoppableThread], scrape_config: Dict, readers: List[Callable[[Metric, str], None]]):
+    loaded_ids = []
     if 'local' in scrape_config:
-        for file in scrape_config['local']:
-            threads.append(
-                LocalLogThread(filename=file['path'], environment=file.get('environment', None), readers=readers))
-
+        loaded_ids.extend(_load_local_scrapers_config(threads, scrape_config['local'], readers))
     if 'ssh' in scrape_config:
-        default_file = scrape_config['ssh'].get('file', None)
-        default_user = scrape_config['ssh'].get('user', None)
-        default_password = scrape_config['ssh'].get('password', None)
-        default_connect_timeout = scrape_config['ssh'].get('connect-timeout', None)
-        for env_name, env_config in scrape_config['ssh']['environments'].items():
-            hosts = env_config['hosts']
-            if not isinstance(hosts, list):
-                hosts = [hosts]
+        loaded_ids.extend(_load_ssh_scrapers_config(threads, scrape_config['ssh'], readers))
 
-            for host in hosts:
-                threads.append(
-                    SSHLogThread(
-                        filename=env_config.get('file', default_file),
-                        environment=env_name,
-                        readers=readers,
-                        host=host,
-                        user=env_config.get('user', default_user),
-                        password=env_config.get('password', default_password),
-                        connect_timeout=env_config.get('connect-timeout', default_connect_timeout))
-                )
+    new_threads = {}
+    stop_threads = []
+    for thread_id, thread in threads.items():
+        if thread_id not in loaded_ids:
+            logging.getLogger().info('Scrape target "{}" will be removed'.format(thread_id))
+            thread.stop_me = True
+            stop_threads.append(thread)
+        else:
+            logging.getLogger().info('New scrape target "{}" found'.format(thread_id))
+            new_threads[thread_id] = thread
+            if not thread.is_alive():
+                thread.start()
 
-    for thread in threads:
-        thread.start()
-
-    return threads
+    for thread in stop_threads:
+        thread.join()
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)-8s [%(module)s] %(message)s')
@@ -251,13 +160,17 @@ def serve_me():
     t = threading.Thread(target=httpd.serve_forever)
     t.start()
 
-    while True:
-        running_threads = []  # type: List[StoppableThread]
-        running_threads, timeout = read_and_load_config(running_threads)
+    readers, scrape_config_script, config_reload_interval, scrape_config = _read_core_config()
 
-        if timeout is None:
-            timeout = 86400 * 365  # sleep for a year... should be enough
-        sleep(timeout)
+    threads = {}
+    _load_scrapers_config(threads, scrape_config, readers)
+
+    while True:
+        if scrape_config_script is not None:
+            _load_from_script(threads, scrape_config_script, readers)
+        if config_reload_interval is None:
+            config_reload_interval = 86400 * 365  # sleep for a year... should be enough
+        sleep(config_reload_interval)
 
 
 serve_me()
