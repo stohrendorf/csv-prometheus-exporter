@@ -42,14 +42,20 @@ def _read_core_config():
 
 
 def _load_from_script(threads: Dict[str, StoppableThread], scrape_config_script: str, readers):
-    script_result = subprocess.check_output(scrape_config_script, shell=True).decode(
-        'utf-8')  # type: str
-    scrape_config = yaml.load(script_result)
+    try:
+        script_result = subprocess.check_output(scrape_config_script, shell=True, timeout=60).decode(
+            'utf-8')  # type: str
+        scrape_config = yaml.load(script_result)
+    except:
+        logging.getLogger().error('Failed to read configuration from script "{}"'.format(scrape_config_script),
+                                  exc_info=True)
+        return
 
     _load_scrapers_config(threads, scrape_config, readers)
 
 
-def _load_local_scrapers_config(threads: Dict[str, StoppableThread], config: Iterable[Dict], readers: List[Callable[[Metric, str], None]]) -> List[str]:
+def _load_local_scrapers_config(threads: Dict[str, StoppableThread], config: Iterable[Dict],
+                                readers: List[Callable[[Metric, str], None]]) -> List[str]:
     ids = []
     for entry in config:
         target_id = 'local://{}'.format(entry['path'])
@@ -127,7 +133,8 @@ def _load_readers_config(scrape_config: Dict) -> List[Callable[[Metric, str], No
     return readers
 
 
-def _load_scrapers_config(threads: Dict[str, StoppableThread], scrape_config: Dict, readers: List[Callable[[Metric, str], None]]):
+def _load_scrapers_config(threads: Dict[str, StoppableThread], scrape_config: Dict,
+                          readers: List[Callable[[Metric, str], None]]):
     loaded_ids = []
     if 'local' in scrape_config:
         loaded_ids.extend(_load_local_scrapers_config(threads, scrape_config['local'], readers))
