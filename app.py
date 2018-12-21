@@ -38,6 +38,9 @@ def _read_core_config():
 
     scrape_config_script = scrape_config.get('script', None)
 
+    gc_thread = MetricsGCCaller(float(scrape_config['global']['ttl']))
+    gc_thread.start()
+
     return readers, scrape_config_script, config_reload_interval, scrape_config
 
 
@@ -161,8 +164,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)-8s [
 def serve_me():
     app = make_wsgi_app(REGISTRY)
     httpd = make_server('', 5000, app)
-    t = threading.Thread(target=httpd.serve_forever)
-    t.start()
+    server_thread = threading.Thread(target=httpd.serve_forever)
+    server_thread.start()
 
     readers, scrape_config_script, config_reload_interval, scrape_config = _read_core_config()
 
