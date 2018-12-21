@@ -4,7 +4,7 @@ import time
 from threading import RLock
 from typing import Union, Dict, Tuple, FrozenSet
 from prometheus_client import Counter, Summary, REGISTRY
-from prometheus_client.core import _LabelWrapper, Gauge
+from prometheus_client.core import Gauge
 
 _active_metrics = Gauge(name='scraper_active_metrics',
                         documentation='Number of non-stale (tracked) metrics')
@@ -17,15 +17,15 @@ class _CounterGC:
         assert ttl > 0
         self._ttl = ttl
         # (metric_name, labels) = (counter, last_usage)
-        self._counters_ttl = {}  # type: Dict[ Tuple[str, FrozenSet[Tuple[str, str]]], Tuple[_LabelWrapper, float] ]
-        self._counters = {}  # type: Dict[ str, _LabelWrapper ]
+        self._counters_ttl = {}  # type: Dict[ Tuple[str, FrozenSet[Tuple[str, str]]], Tuple[Counter, float] ]
+        self._counters = {}  # type: Dict[ str, Counter ]
         self._lock = RLock()
 
     def gc(self):
         with _gc_duration.time():
             now = time.time()
             with self._lock:
-                cleaned = {}  # type: Dict[ Tuple[str, FrozenSet[Tuple[str, str]]], Tuple[_LabelWrapper, float] ]
+                cleaned = {}  # type: Dict[ Tuple[str, FrozenSet[Tuple[str, str]]], Tuple[Counter, float] ]
                 dropped = 0
                 for key, counter_ttl in self._counters_ttl.items():
                     counter = counter_ttl[0]
@@ -47,7 +47,7 @@ class _CounterGC:
         with self._lock:
             counter = self._counters.get(full_name, None)
             if counter is None:
-                counter = Counter(full_name, documentation, labels.keys())  # type: _LabelWrapper
+                counter = Counter(full_name, documentation, labels.keys())  # type: Counter
                 self._counters[full_name] = counter
 
             key = (full_name, frozenset(labels.items()))

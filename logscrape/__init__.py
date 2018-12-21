@@ -9,13 +9,12 @@ from typing import List, Callable, IO
 import _thread
 import paramiko
 from prometheus_client import Counter
-from prometheus_client.core import _LabelWrapper
 
 import prometheus
 from parser import Metric, LogParser
 
 _READ_TIMEOUT = 30
-_in_bytes = Counter('in_bytes', 'Amount of bytes read from remote', ['environment'])  # type: _LabelWrapper
+_in_bytes = Counter('in_bytes', 'Amount of bytes read from remote', ['environment'])  # type: Counter
 
 
 def _parse_file(stdout: IO, environment: str, readers: List[Callable[[Metric, str], None]]):

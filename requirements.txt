@@ -1,4 +1,4 @@
 paramiko
 pyyaml
 typing
-prometheus_client
+prometheus_client==0.5.0
