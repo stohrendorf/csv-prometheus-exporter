@@ -10,7 +10,7 @@ import yaml
 from prometheus_client import make_wsgi_app, REGISTRY, Counter, Histogram, Gauge
 
 import prometheus
-from logscrape import StoppableThread, LocalLogThread, SSHLogThread
+from logscrape import StoppableThread, LocalLogThread, SSHLogThread, LogThread
 from parser import request_header_reader, label_reader, number_reader, clf_number_reader, Metric
 
 
@@ -22,7 +22,7 @@ _active_targets = Gauge(name='scrape_targets_count', documentation='', labelname
 
 
 class MetricsGCCaller(StoppableThread):
-    def __init__(self, interval: float, threads: Dict[str, StoppableThread]):
+    def __init__(self, interval: float, threads: Dict[str, LogThread]):
         super().__init__()
         assert interval > 0
         self._interval = interval
@@ -33,16 +33,16 @@ class MetricsGCCaller(StoppableThread):
             sleep(self._interval)
             _get_logger().info('Doing metrics garbage collection')
             prometheus.gc()
-            active = 0
-            inactive = 0
+            connected = 0
+            disconnected = 0
             for thread in self._threads.values():
-                if thread.is_alive():
-                    active += 1
+                if thread.is_connected:
+                    connected += 1
                 else:
-                    inactive += 1
+                    disconnected += 1
 
-            _active_targets.labels(type='active').set(active)
-            _active_targets.labels(type='inactive').set(inactive)
+            _active_targets.labels(type='connected').set(connected)
+            _active_targets.labels(type='disconnected').set(disconnected)
 
 
 def _read_core_config():
@@ -63,7 +63,7 @@ _script_load_counter = Counter(name='script_load_events', documentation='', labe
 _script_load_timer = Histogram(name='script_execution_time', documentation='')
 
 
-def _load_from_script(threads: Dict[str, StoppableThread], scrape_config_script: str, readers):
+def _load_from_script(threads: Dict[str, LogThread], scrape_config_script: str, readers):
     try:
         with _script_load_timer.time():
             script_result = subprocess.check_output(scrape_config_script, shell=True, timeout=60).decode(
@@ -79,7 +79,7 @@ def _load_from_script(threads: Dict[str, StoppableThread], scrape_config_script:
     _load_scrapers_config(threads, scrape_config, readers)
 
 
-def _load_local_scrapers_config(threads: Dict[str, StoppableThread], config: Iterable[Dict],
+def _load_local_scrapers_config(threads: Dict[str, LogThread], config: Iterable[Dict],
                                 readers: List[Callable[[Metric, str], None]]) -> List[str]:
     ids = []
     for entry in config:
@@ -94,7 +94,7 @@ def _load_local_scrapers_config(threads: Dict[str, StoppableThread], config: Ite
     return ids
 
 
-def _load_ssh_scrapers_config(threads: Dict[str, StoppableThread],
+def _load_ssh_scrapers_config(threads: Dict[str, LogThread],
                               config: Dict[str, Dict],
                               readers: List[Callable[[Metric, str], None]]) -> List[str]:
     ids = []
@@ -158,7 +158,7 @@ def _load_readers_config(scrape_config: Dict) -> List[Callable[[Metric, str], No
     return readers
 
 
-def _load_scrapers_config(threads: Dict[str, StoppableThread], scrape_config: Dict,
+def _load_scrapers_config(threads: Dict[str, LogThread], scrape_config: Dict,
                           readers: List[Callable[[Metric, str], None]]):
     loaded_ids = []
     if 'local' in scrape_config:
@@ -191,7 +191,7 @@ def serve_me():
 
     readers, scrape_config_script, config_reload_interval, scrape_config = _read_core_config()
 
-    threads = {}
+    threads = {}  # type: Dict[str, LogThread]
     _load_scrapers_config(threads, scrape_config, readers)
 
     gc_thread = MetricsGCCaller(float(scrape_config['global']['ttl']), threads)

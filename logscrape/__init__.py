@@ -57,7 +57,17 @@ class StoppableThread(threading.Thread):
         self.stop_me = False
 
 
-class LocalLogThread(StoppableThread):
+class LogThread(StoppableThread):
+    def __init__(self):
+        super().__init__()
+        self._connected = False
+
+    @property
+    def is_connected(self):
+        return self._connected
+
+
+class LocalLogThread(LogThread):
     def __init__(self, filename: str, environment: str, readers: List[Callable[[Metric, str], None]]):
         super().__init__()
         self._filename = filename
@@ -66,21 +76,24 @@ class LocalLogThread(StoppableThread):
 
     def run(self):
         while not self.stop_me:
+            self._connected = False
             try:
                 with subprocess.Popen(args=['tail', '-F', '-n0', self._filename],
                                       stdout=subprocess.PIPE,
                                       stderr=subprocess.DEVNULL,
                                       universal_newlines=True,
                                       timeout=_READ_TIMEOUT) as process:
+                    self._connected = True
                     _parse_file(process.stdout, self._environment, self._readers)
             except subprocess.TimeoutExpired:
                 pass
-            except Exception as e:
-                _get_logger().warning('Failed to tail {}'.format(self._filename), exc_info=e)
+            except:
+                self._connected = False
+                _get_logger().warning('Failed to tail {}'.format(self._filename), exc_info=True)
                 sleep(5)
 
 
-class SSHLogThread(StoppableThread):
+class SSHLogThread(LogThread):
     def __init__(self,
                  filename: str,
                  environment: str,
@@ -106,6 +119,7 @@ class SSHLogThread(StoppableThread):
     def run(self):
         try:
             while not self.stop_me:
+                self._connected = False
                 with paramiko.SSHClient() as client:
                     client.load_system_host_keys()
                     client.set_missing_host_key_policy(paramiko.WarningPolicy())
@@ -116,10 +130,12 @@ class SSHLogThread(StoppableThread):
                     except socket.timeout:
                         _get_logger().warning("Connect attempt to {} timed out, retrying".format(self._host))
                         continue
-                    except (socket.error, paramiko.SSHException) as e:
+                    except (socket.error, paramiko.SSHException):
                         _get_logger().warning("Connect attempt to {} failed, not trying again".format(self._host),
-                                                    exc_info=e)
+                                              exc_info=True)
                         break
+
+                    self._connected = True
                     try:
                         ssh_stdin, ssh_stdout, ssh_stderr = client.exec_command(
                             'tail -n0 -F "{}" 2>/dev/null'.format(self._filename),
@@ -127,8 +143,9 @@ class SSHLogThread(StoppableThread):
                         _parse_file(ssh_stdout, self._environment, self._readers)
                     except socket.timeout:
                         continue
+                    self._connected = False
                     sleep(1)
-        except Exception as e:
-            _get_logger().warning("SSH failure", exc_info=e)
+        except:
+            _get_logger().warning("SSH failure", exc_info=True)
             _thread.interrupt_main()
             exit(1)
