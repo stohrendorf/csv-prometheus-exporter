@@ -7,24 +7,42 @@ from typing import Dict, List, Iterable, Callable
 from wsgiref.simple_server import make_server
 
 import yaml
-from prometheus_client import make_wsgi_app, REGISTRY
+from prometheus_client import make_wsgi_app, REGISTRY, Counter, Histogram, Gauge
 
 import prometheus
 from logscrape import StoppableThread, LocalLogThread, SSHLogThread
 from parser import request_header_reader, label_reader, number_reader, clf_number_reader, Metric
 
 
+def _get_logger():
+    return logging.getLogger(__name__)
+
+
+_active_targets = Gauge(name='scrape_targets_count', documentation='', labelnames=['type'])
+
+
 class MetricsGCCaller(StoppableThread):
-    def __init__(self, interval: float):
+    def __init__(self, interval: float, threads: Dict[str, StoppableThread]):
         super().__init__()
         assert interval > 0
         self._interval = interval
+        self._threads = threads
 
     def run(self):
         while not self.stop_me:
             sleep(self._interval)
-            logging.getLogger().info('Doing metrics garbage collection')
+            _get_logger().info('Doing metrics garbage collection')
             prometheus.gc()
+            active = 0
+            inactive = 0
+            for thread in self._threads.values():
+                if thread.is_alive():
+                    active += 1
+                else:
+                    inactive += 1
+
+            _active_targets.labels(type='active').set(active)
+            _active_targets.labels(type='inactive').set(inactive)
 
 
 def _read_core_config():
@@ -38,20 +56,24 @@ def _read_core_config():
 
     scrape_config_script = scrape_config.get('script', None)
 
-    gc_thread = MetricsGCCaller(float(scrape_config['global']['ttl']))
-    gc_thread.start()
-
     return readers, scrape_config_script, config_reload_interval, scrape_config
+
+
+_script_load_counter = Counter(name='script_load_events', documentation='', labelnames=['type'])
+_script_load_timer = Histogram(name='script_execution_time', documentation='')
 
 
 def _load_from_script(threads: Dict[str, StoppableThread], scrape_config_script: str, readers):
     try:
-        script_result = subprocess.check_output(scrape_config_script, shell=True, timeout=60).decode(
-            'utf-8')  # type: str
+        with _script_load_timer.time():
+            script_result = subprocess.check_output(scrape_config_script, shell=True, timeout=60).decode(
+                'utf-8')  # type: str
         scrape_config = yaml.load(script_result)
+        _script_load_counter.labels(type='success').inc()
     except:
-        logging.getLogger().error('Failed to read configuration from script "{}"'.format(scrape_config_script),
-                                  exc_info=True)
+        _script_load_counter.labels(type='error').inc()
+        _get_logger().error('Failed to read configuration from script "{}"'.format(scrape_config_script),
+                            exc_info=True)
         return
 
     _load_scrapers_config(threads, scrape_config, readers)
@@ -64,7 +86,7 @@ def _load_local_scrapers_config(threads: Dict[str, StoppableThread], config: Ite
         target_id = 'local://{}'.format(entry['path'])
         ids.append(target_id)
         if target_id in threads:
-            logging.getLogger().warning('Ignoring duplicate scrape target "{}"'.format(target_id))
+            _get_logger().warning('Ignoring duplicate scrape target "{}"'.format(target_id))
             continue
         threads[target_id] = LocalLogThread(filename=entry['path'],
                                             environment=entry.get('environment', None),
@@ -89,7 +111,7 @@ def _load_ssh_scrapers_config(threads: Dict[str, StoppableThread],
             target_id = 'ssh://{}/{}'.format(host, env_config.get('file', default_file))
             ids.append(target_id)
             if target_id in threads:
-                logging.getLogger().warning('Ignoring duplicate scrape target "{}"'.format(target_id))
+                _get_logger().warning('Ignoring duplicate scrape target "{}"'.format(target_id))
                 continue
             threads[target_id] = SSHLogThread(
                 filename=env_config.get('file', default_file),
@@ -147,11 +169,11 @@ def _load_scrapers_config(threads: Dict[str, StoppableThread], scrape_config: Di
     stop_threads = []
     for thread_id, thread in threads.items():
         if thread_id not in loaded_ids:
-            logging.getLogger().info('Scrape target "{}" will be removed'.format(thread_id))
+            _get_logger().info('Scrape target "{}" will be removed'.format(thread_id))
             thread.stop_me = True
             stop_threads.append(thread)
         elif not thread.is_alive():
-            logging.getLogger().info('New scrape target "{}" added'.format(thread_id))
+            _get_logger().info('New scrape target "{}" added'.format(thread_id))
             thread.start()
 
     for thread in stop_threads:
@@ -171,6 +193,9 @@ def serve_me():
 
     threads = {}
     _load_scrapers_config(threads, scrape_config, readers)
+
+    gc_thread = MetricsGCCaller(float(scrape_config['global']['ttl']), threads)
+    gc_thread.start()
 
     while True:
         if scrape_config_script is not None:

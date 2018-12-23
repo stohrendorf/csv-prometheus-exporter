@@ -17,6 +17,10 @@ _READ_TIMEOUT = 30
 _in_bytes = Counter('in_bytes', 'Amount of bytes read from remote', ['environment'])  # type: Counter
 
 
+def _get_logger():
+    return logging.getLogger(__name__)
+
+
 def _parse_file(stdout: IO, environment: str, readers: List[Callable[[Metric, str], None]]):
     if not environment:
         environment = 'N/A'
@@ -72,7 +76,7 @@ class LocalLogThread(StoppableThread):
             except subprocess.TimeoutExpired:
                 pass
             except Exception as e:
-                logging.getLogger().warning('Failed to tail {}'.format(self._filename), exc_info=e)
+                _get_logger().warning('Failed to tail {}'.format(self._filename), exc_info=e)
                 sleep(5)
 
 
@@ -110,10 +114,10 @@ class SSHLogThread(StoppableThread):
                                        username=self._user, password=self._password,
                                        timeout=self._connect_timeout)
                     except socket.timeout:
-                        logging.getLogger().warning("Connect attempt to {} timed out, retrying".format(self._host))
+                        _get_logger().warning("Connect attempt to {} timed out, retrying".format(self._host))
                         continue
                     except (socket.error, paramiko.SSHException) as e:
-                        logging.getLogger().warning("Connect attempt to {} failed, not trying again".format(self._host),
+                        _get_logger().warning("Connect attempt to {} failed, not trying again".format(self._host),
                                                     exc_info=e)
                         break
                     try:
@@ -125,6 +129,6 @@ class SSHLogThread(StoppableThread):
                         continue
                     sleep(1)
         except Exception as e:
-            logging.getLogger().warning("SSH failure", exc_info=e)
+            _get_logger().warning("SSH failure", exc_info=e)
             _thread.interrupt_main()
             exit(1)

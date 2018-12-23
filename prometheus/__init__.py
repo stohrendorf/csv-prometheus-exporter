@@ -12,6 +12,10 @@ _gc_duration = Summary('scraper_gc_duration_seconds',
                        documentation='Duration of stale metric removal')
 
 
+def _get_logger():
+    return logging.getLogger(__name__)
+
+
 class _CounterGC:
     def __init__(self, ttl: float):
         assert ttl > 0
@@ -41,7 +45,7 @@ class _CounterGC:
 
             _active_metrics.set(len(self._counters_ttl))
             if dropped > 0:
-                logging.getLogger().info('Dropped {} metric(s) due to exceeding TTL'.format(dropped))
+                _get_logger().info('Dropped {} metric(s) due to exceeding TTL'.format(dropped))
 
     def inc(self, full_name: str, documentation: str, labels: Dict[str, str], amount: float):
         with self._lock:
