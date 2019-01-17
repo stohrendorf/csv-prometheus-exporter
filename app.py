@@ -101,6 +101,7 @@ def _load_ssh_scrapers_config(threads: Dict[str, LogThread],
     default_file = config.get('file', None)
     default_user = config.get('user', None)
     default_password = config.get('password', None)
+    default_pkey = config.get('pkey', None)
     default_connect_timeout = config.get('connect-timeout', None)
     for env_name, env_config in config['environments'].items():
         hosts = env_config['hosts']
@@ -120,6 +121,7 @@ def _load_ssh_scrapers_config(threads: Dict[str, LogThread],
                 host=host,
                 user=env_config.get('user', default_user),
                 password=env_config.get('password', default_password),
+                pkey=env_config.get('pkey', default_pkey),
                 connect_timeout=env_config.get('connect-timeout', default_connect_timeout)
             )
     return ids

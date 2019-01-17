@@ -101,12 +101,14 @@ class SSHLogThread(LogThread):
                  host: str,
                  user: str,
                  password: str,
+                 pkey: str,
                  connect_timeout: float):
         super().__init__()
         self._filename = filename
         self._host = host
         self._user = user
         self._password = password
+        self._pkey = pkey
         self._environment = environment
         self._readers = readers
         if connect_timeout is None:
@@ -126,6 +128,7 @@ class SSHLogThread(LogThread):
                     try:
                         client.connect(hostname=self._host, port=22,
                                        username=self._user, password=self._password,
+                                       key_filename=self._pkey,
                                        timeout=self._connect_timeout)
                     except socket.timeout:
                         _get_logger().warning("Connect attempt to {} timed out, retrying".format(self._host))
