@@ -1,12 +1,12 @@
+import _thread
 import logging
 import socket
 import subprocess
 import threading
+from abc import ABC, abstractmethod
 from time import sleep
-
 from typing import List, Callable, IO
 
-import _thread
 import paramiko
 from prometheus_client import Counter
 
@@ -57,14 +57,24 @@ class StoppableThread(threading.Thread):
         self.stop_me = False
 
 
-class LogThread(StoppableThread):
+class LogThread(StoppableThread, ABC):
     def __init__(self):
         super().__init__()
         self._connected = False
 
     @property
-    def is_connected(self):
+    def is_connected(self) -> bool:
         return self._connected
+
+    @property
+    @abstractmethod
+    def host(self) -> str:
+        raise NotImplementedError()
+
+    @property
+    @abstractmethod
+    def environment(self) -> str:
+        raise NotImplementedError()
 
 
 class LocalLogThread(LogThread):
@@ -73,6 +83,14 @@ class LocalLogThread(LogThread):
         self._filename = filename
         self._environment = environment
         self._readers = readers
+
+    @property
+    def host(self):
+        return self._filename
+
+    @property
+    def environment(self):
+        return self._environment
 
     def run(self):
         while not self.stop_me:
@@ -117,6 +135,14 @@ class SSHLogThread(LogThread):
             self._connect_timeout = connect_timeout
         else:
             self._connect_timeout = float(connect_timeout)
+
+    @property
+    def host(self):
+        return self._host
+
+    @property
+    def environment(self):
+        return self._environment
 
     def run(self):
         try:

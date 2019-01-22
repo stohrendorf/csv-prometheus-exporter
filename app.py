@@ -12,6 +12,7 @@ from prometheus_client import make_wsgi_app, REGISTRY, Counter, Histogram, Gauge
 import prometheus
 from logscrape import StoppableThread, LocalLogThread, SSHLogThread, LogThread
 from parser import request_header_reader, label_reader, number_reader, clf_number_reader, Metric
+from prometheus import set_gauge
 
 
 def _get_logger():
@@ -40,6 +41,10 @@ class MetricsGCCaller(StoppableThread):
                     connected += 1
                 else:
                     disconnected += 1
+                    set_gauge("target_disconnected", "Marks a target as disconnected if not zero", {
+                        'host': thread.host,
+                        'environment': thread.environment
+                    }, 1)
 
             _active_targets.labels(type='connected').set(connected)
             _active_targets.labels(type='disconnected').set(disconnected)
