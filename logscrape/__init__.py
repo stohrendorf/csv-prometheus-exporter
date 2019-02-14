@@ -5,7 +5,7 @@ import subprocess
 import threading
 from abc import ABC, abstractmethod
 from time import sleep
-from typing import List, Callable, IO
+from typing import List, Callable, IO, Dict
 
 import paramiko
 from prometheus_client import Counter
@@ -21,7 +21,10 @@ def _get_logger():
     return logging.getLogger(__name__)
 
 
-def _parse_file(stdout: IO, environment: str, readers: List[Callable[[Metric, str], None]]):
+def _parse_file(stdout: IO,
+                environment: str,
+                readers: List[Callable[[Metric, str], None]],
+                histograms: Dict[str, List[float]]):
     if not environment:
         environment = 'N/A'
 
@@ -43,12 +46,21 @@ def _parse_file(stdout: IO, environment: str, readers: List[Callable[[Metric, st
                                labels=entry.labels)
 
         for name, amount in entry.metrics.items():
-            prometheus.inc_counter(
-                name=name,
-                documentation='Sum of "{}"'.format(name),
-                labels=entry.labels,
-                amount=amount
-            )
+            if name not in histograms:
+                prometheus.inc_counter(
+                    name=name,
+                    documentation='Sum of "{}"'.format(name),
+                    labels=entry.labels,
+                    amount=amount
+                )
+            else:
+                prometheus.observe(
+                    name=name,
+                    documentation='Histogram of "{}"'.format(name),
+                    labels=entry.labels,
+                    amount=amount,
+                    buckets=histograms[name]
+                )
 
 
 class StoppableThread(threading.Thread):
@@ -78,11 +90,13 @@ class LogThread(StoppableThread, ABC):
 
 
 class LocalLogThread(LogThread):
-    def __init__(self, filename: str, environment: str, readers: List[Callable[[Metric, str], None]]):
+    def __init__(self, filename: str, environment: str, readers: List[Callable[[Metric, str], None]],
+                 histograms: Dict[str, List[float]]):
         super().__init__()
         self._filename = filename
         self._environment = environment
         self._readers = readers
+        self._histograms = histograms
 
     @property
     def host(self):
@@ -102,7 +116,7 @@ class LocalLogThread(LogThread):
                                       universal_newlines=True,
                                       timeout=_READ_TIMEOUT) as process:
                     self._connected = True
-                    _parse_file(process.stdout, self._environment, self._readers)
+                    _parse_file(process.stdout, self._environment, self._readers, self._histograms)
             except subprocess.TimeoutExpired:
                 pass
             except:
@@ -120,7 +134,8 @@ class SSHLogThread(LogThread):
                  user: str,
                  password: str,
                  pkey: str,
-                 connect_timeout: float):
+                 connect_timeout: float,
+                 histograms: Dict[str, List[float]]):
         super().__init__()
         self._filename = filename
         self._host = host
@@ -135,6 +150,7 @@ class SSHLogThread(LogThread):
             self._connect_timeout = connect_timeout
         else:
             self._connect_timeout = float(connect_timeout)
+        self._histograms = histograms
 
     @property
     def host(self):
@@ -169,7 +185,7 @@ class SSHLogThread(LogThread):
                         ssh_stdin, ssh_stdout, ssh_stderr = client.exec_command(
                             'tail -n0 -F "{}" 2>/dev/null'.format(self._filename),
                             bufsize=1, timeout=_READ_TIMEOUT)
-                        _parse_file(ssh_stdout, self._environment, self._readers)
+                        _parse_file(ssh_stdout, self._environment, self._readers, self._histograms)
                     except socket.timeout:
                         continue
                     self._connected = False

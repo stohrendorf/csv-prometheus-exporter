@@ -3,11 +3,12 @@ import os
 import subprocess
 import threading
 from time import sleep
-from typing import Dict, List, Iterable, Callable
+from typing import Dict, List, Iterable, Callable, Tuple
 from wsgiref.simple_server import make_server
 
 import yaml
 from prometheus_client import make_wsgi_app, REGISTRY, Counter, Histogram, Gauge
+from prometheus_client.utils import INF
 
 import prometheus
 from logscrape import StoppableThread, LocalLogThread, SSHLogThread, LogThread
@@ -53,7 +54,7 @@ class MetricsGCCaller(StoppableThread):
 def _read_core_config():
     scrape_config_filename = os.environ.get('SCRAPECONFIG', 'scrapeconfig.yml')
     scrape_config = yaml.load(open(scrape_config_filename))
-    readers = _load_readers_config(scrape_config)
+    readers, histograms = _load_readers_config(scrape_config)
 
     config_reload_interval = scrape_config.get('reload-interval', None)
     if config_reload_interval is not None:
@@ -61,14 +62,14 @@ def _read_core_config():
 
     scrape_config_script = scrape_config.get('script', None)
 
-    return readers, scrape_config_script, config_reload_interval, scrape_config
+    return readers, scrape_config_script, config_reload_interval, scrape_config, histograms
 
 
 _script_load_counter = Counter(name='script_load_events', documentation='', labelnames=['type'])
 _script_load_timer = Histogram(name='script_execution_time', documentation='')
 
 
-def _load_from_script(threads: Dict[str, LogThread], scrape_config_script: str, readers):
+def _load_from_script(threads: Dict[str, LogThread], scrape_config_script: str, readers, histograms):
     try:
         with _script_load_timer.time():
             script_result = subprocess.check_output(scrape_config_script, shell=True, timeout=60).decode(
@@ -81,11 +82,12 @@ def _load_from_script(threads: Dict[str, LogThread], scrape_config_script: str, 
                             exc_info=True)
         return
 
-    _load_scrapers_config(threads, scrape_config, readers)
+    _load_scrapers_config(threads, scrape_config, readers, histograms)
 
 
 def _load_local_scrapers_config(threads: Dict[str, LogThread], config: Iterable[Dict],
-                                readers: List[Callable[[Metric, str], None]]) -> List[str]:
+                                readers: List[Callable[[Metric, str], None]],
+                                histograms) -> List[str]:
     ids = []
     for entry in config:
         target_id = 'local://{}'.format(entry['path'])
@@ -95,19 +97,22 @@ def _load_local_scrapers_config(threads: Dict[str, LogThread], config: Iterable[
             continue
         threads[target_id] = LocalLogThread(filename=entry['path'],
                                             environment=entry.get('environment', None),
-                                            readers=readers)
+                                            readers=readers,
+                                            histograms=histograms)
     return ids
 
 
 def _load_ssh_scrapers_config(threads: Dict[str, LogThread],
                               config: Dict[str, Dict],
-                              readers: List[Callable[[Metric, str], None]]) -> List[str]:
+                              readers: List[Callable[[Metric, str], None]],
+                              histograms: Dict[str, List[float]]) -> List[str]:
     ids = []
     default_file = config.get('file', None)
     default_user = config.get('user', None)
     default_password = config.get('password', None)
     default_pkey = config.get('pkey', None)
     default_connect_timeout = config.get('connect-timeout', None)
+
     for env_name, env_config in config['environments'].items():
         hosts = env_config['hosts']
         if not isinstance(hosts, list):
@@ -127,13 +132,26 @@ def _load_ssh_scrapers_config(threads: Dict[str, LogThread],
                 user=env_config.get('user', default_user),
                 password=env_config.get('password', default_password),
                 pkey=env_config.get('pkey', default_pkey),
-                connect_timeout=env_config.get('connect-timeout', default_connect_timeout)
+                connect_timeout=env_config.get('connect-timeout', default_connect_timeout),
+                histograms=histograms
             )
     return ids
 
 
-def _load_readers_config(scrape_config: Dict) -> List[Callable[[Metric, str], None]]:
+def _load_readers_config(scrape_config: Dict) -> Tuple[List[Callable[[Metric, str], None]], Dict[str, List[float]]]:
     readers = []
+    histogram_types = {}  # type: Dict[str, List[float]]
+    for histogram_name, buckets in scrape_config['global'].get('histograms', {}).items():
+        if histogram_name in histogram_types:
+            raise RuntimeError('Duplicate histogram definition of {}'.format(histogram_name))
+        if buckets is None or len(buckets) == 0:
+            histogram_types[histogram_name] = Histogram.DEFAULT_BUCKETS
+        else:
+            histogram_types[histogram_name] = [float(x) for x in buckets]
+        if histogram_types[histogram_name][-1] != INF:
+            histogram_types[histogram_name].append(INF)
+
+    histograms = {}  # type: Dict[str, List[float]]
     for fmt_entry in scrape_config['global']['format']:
         if fmt_entry is None:
             readers.append(None)
@@ -151,6 +169,15 @@ def _load_readers_config(scrape_config: Dict) -> List[Callable[[Metric, str], No
         elif tp != 'label' and name in ('parser_errors', 'lines_parsed', 'in_bytes'):
             raise ValueError("'{}' is a reserved metric name".format(name))
 
+        if '+' in tp:
+            print(name)
+            tp_split = tp.split('+')
+            tp = tp_split[0].strip()
+            histogram_type = tp_split[1].strip()
+            if histogram_type not in histogram_types:
+                raise RuntimeError('Histogram type {} is not defined'.format(histogram_type))
+            histograms[name] = histogram_types[histogram_type]
+
         reader = {
             'number': number_reader,
             'clf_number': clf_number_reader,
@@ -162,16 +189,17 @@ def _load_readers_config(scrape_config: Dict) -> List[Callable[[Metric, str], No
     prometheus.set_prefix(scrape_config['global']['prefix'])
     prometheus.set_ttl(scrape_config['global']['ttl'])
 
-    return readers
+    return readers, histograms
 
 
 def _load_scrapers_config(threads: Dict[str, LogThread], scrape_config: Dict,
-                          readers: List[Callable[[Metric, str], None]]):
+                          readers: List[Callable[[Metric, str], None]],
+                          histograms: Dict[str, List[float]]):
     loaded_ids = []
     if 'local' in scrape_config:
-        loaded_ids.extend(_load_local_scrapers_config(threads, scrape_config['local'], readers))
+        loaded_ids.extend(_load_local_scrapers_config(threads, scrape_config['local'], readers, histograms))
     if 'ssh' in scrape_config:
-        loaded_ids.extend(_load_ssh_scrapers_config(threads, scrape_config['ssh'], readers))
+        loaded_ids.extend(_load_ssh_scrapers_config(threads, scrape_config['ssh'], readers, histograms))
 
     stop_threads = []
     for thread_id, thread in threads.items():
@@ -196,17 +224,17 @@ def serve_me():
     server_thread = threading.Thread(target=httpd.serve_forever)
     server_thread.start()
 
-    readers, scrape_config_script, config_reload_interval, scrape_config = _read_core_config()
+    readers, scrape_config_script, config_reload_interval, scrape_config, histograms = _read_core_config()
 
     threads = {}  # type: Dict[str, LogThread]
-    _load_scrapers_config(threads, scrape_config, readers)
+    _load_scrapers_config(threads, scrape_config, readers, histograms)
 
     gc_thread = MetricsGCCaller(float(scrape_config['global']['ttl']), threads)
     gc_thread.start()
 
     while True:
         if scrape_config_script is not None:
-            _load_from_script(threads, scrape_config_script, readers)
+            _load_from_script(threads, scrape_config_script, readers, histograms)
         if config_reload_interval is None:
             config_reload_interval = 86400 * 365  # sleep for a year... should be enough
         sleep(config_reload_interval)

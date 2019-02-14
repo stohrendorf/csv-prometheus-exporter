@@ -2,8 +2,8 @@ import logging
 import re
 import time
 from threading import RLock
-from typing import Union, Dict, Tuple, FrozenSet
-from prometheus_client import Counter, Summary, REGISTRY
+from typing import Union, Dict, Tuple, FrozenSet, List
+from prometheus_client import Counter, Summary, REGISTRY, Histogram
 from prometheus_client.core import Gauge
 from prometheus_client.metrics import MetricWrapperBase
 
@@ -74,6 +74,19 @@ class _MetricGC:
             self._metrics_ttl[key] = (gauge, time.time())
             gauge.labels(**labels).set(value)
 
+    def observe(self, full_name: str, documentation: str, labels: Dict[str, str], value: float, buckets: List[float]):
+        with self._lock:
+            histogram = self._metrics.get(full_name, None)
+            if histogram is None:
+                histogram = Histogram(full_name, documentation, labels.keys(), buckets=buckets)
+                self._metrics[full_name] = histogram
+
+            key = (full_name, frozenset(labels.items()))
+            if key not in self._metrics_ttl:
+                _active_metrics.inc()
+            self._metrics_ttl[key] = (histogram, time.time())
+            histogram.labels(**labels).observe(value)
+
     def clear(self):
         with self._lock:
             for metric in self._metrics.values():
@@ -114,3 +127,8 @@ def inc_counter(name: str, documentation: str, labels: Dict[str, str], amount: U
 def set_gauge(name: str, documentation: str, labels: Dict[str, str], amount: Union[int, float]):
     full_name = '{}:{}'.format(_metrics_prefix, name)
     _metrics.set_gauge(full_name, documentation, labels, amount)
+
+
+def observe(name: str, documentation: str, labels: Dict[str, str], amount: Union[int, float], buckets: List[float]):
+    full_name = '{}:{}'.format(_metrics_prefix, name)
+    _metrics.observe(full_name, documentation, labels, amount, buckets)
