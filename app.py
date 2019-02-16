@@ -95,10 +95,12 @@ def _load_local_scrapers_config(threads: Dict[str, LogThread], config: Iterable[
         if target_id in threads:
             _get_logger().warning('Ignoring duplicate scrape target "{}"'.format(target_id))
             continue
-        threads[target_id] = LocalLogThread(filename=entry['path'],
-                                            environment=entry.get('environment', None),
-                                            readers=readers,
-                                            histograms=histograms)
+        threads[target_id] = thread = LocalLogThread(filename=entry['path'],
+                                                     environment=entry.get('environment', None),
+                                                     readers=readers,
+                                                     histograms=histograms)
+        thread.start()
+        _get_logger().info('New scrape target "{}" added'.format(target_id))
     return ids
 
 
@@ -124,7 +126,7 @@ def _load_ssh_scrapers_config(threads: Dict[str, LogThread],
             if target_id in threads:
                 _get_logger().warning('Ignoring duplicate scrape target "{}"'.format(target_id))
                 continue
-            threads[target_id] = SSHLogThread(
+            threads[target_id] = thread = SSHLogThread(
                 filename=env_config.get('file', default_file),
                 environment=env_name,
                 readers=readers,
@@ -135,6 +137,8 @@ def _load_ssh_scrapers_config(threads: Dict[str, LogThread],
                 connect_timeout=env_config.get('connect-timeout', default_connect_timeout),
                 histograms=histograms
             )
+            thread.start()
+            _get_logger().info('New scrape target "{}" added'.format(target_id))
     return ids
 
 
@@ -170,7 +174,6 @@ def _load_readers_config(scrape_config: Dict) -> Tuple[List[Callable[[Metric, st
             raise ValueError("'{}' is a reserved metric name".format(name))
 
         if '+' in tp:
-            print(name)
             tp_split = tp.split('+')
             tp = tp_split[0].strip()
             histogram_type = tp_split[1].strip()
@@ -207,9 +210,6 @@ def _load_scrapers_config(threads: Dict[str, LogThread], scrape_config: Dict,
             _get_logger().info('Scrape target "{}" will be removed'.format(thread_id))
             thread.stop_me = True
             stop_threads.append(thread)
-        elif not thread.is_alive():
-            _get_logger().info('New scrape target "{}" added'.format(thread_id))
-            thread.start()
 
     for thread in stop_threads:
         thread.join()
