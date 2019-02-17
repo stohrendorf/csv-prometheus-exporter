@@ -93,7 +93,7 @@ def _load_local_scrapers_config(threads: Dict[str, LogThread], config: Iterable[
         target_id = 'local://{}'.format(entry['path'])
         ids.append(target_id)
         if target_id in threads:
-            _get_logger().warning('Ignoring duplicate scrape target "{}"'.format(target_id))
+            _get_logger().debug('Ignoring duplicate scrape target "{}"'.format(target_id))
             continue
         threads[target_id] = thread = LocalLogThread(filename=entry['path'],
                                                      environment=entry.get('environment', None),
@@ -124,7 +124,7 @@ def _load_ssh_scrapers_config(threads: Dict[str, LogThread],
             target_id = 'ssh://{}/{}'.format(host, env_config.get('file', default_file))
             ids.append(target_id)
             if target_id in threads:
-                _get_logger().warning('Ignoring duplicate scrape target "{}"'.format(target_id))
+                _get_logger().debug('Ignoring duplicate scrape target "{}"'.format(target_id))
                 continue
             threads[target_id] = thread = SSHLogThread(
                 filename=env_config.get('file', default_file),
@@ -215,7 +215,7 @@ def _load_scrapers_config(threads: Dict[str, LogThread], scrape_config: Dict,
         thread.join()
 
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)-8s [%(module)s] %(message)s')
+logging.basicConfig(format='%(asctime)-15s %(levelname)-8s [%(module)s] %(message)s')
 
 
 def serve_me():

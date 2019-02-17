@@ -1,20 +1,19 @@
 import _thread
 import logging
-import socket
 import subprocess
 import threading
 from abc import ABC, abstractmethod
 from time import sleep
 from typing import List, Callable, IO, Dict
 
-import paramiko
-from prometheus_client import Counter
+from pssh.clients.native import SSHClient
+import pssh.clients.native.single
 
 import prometheus
 from parser import Metric, LogParser
 
 _READ_TIMEOUT = 30
-_in_bytes = Counter('in_bytes', 'Amount of bytes read from remote', ['environment'])  # type: Counter
+pssh.clients.native.single.host_logger.setLevel(logging.ERROR)
 
 
 def _get_logger():
@@ -28,13 +27,7 @@ def _parse_file(stdout: IO,
     if not environment:
         environment = 'N/A'
 
-    prev_pos = stdout.tell()
-    in_bytes_env = _in_bytes.labels(environment=environment)  # type: Counter
     for entry in LogParser(stdout, readers, {'environment': environment}).read_all():
-        current_pos = stdout.tell()
-        in_bytes_env.inc(current_pos - prev_pos)
-        prev_pos = current_pos
-
         if entry is None:
             prometheus.inc_counter(name='parser_errors',
                                    documentation='Number of lines which could not be parsed',
@@ -134,7 +127,7 @@ class SSHLogThread(LogThread):
                  user: str,
                  password: str,
                  pkey: str,
-                 connect_timeout: float,
+                 connect_timeout: int,
                  histograms: Dict[str, List[float]]):
         super().__init__()
         self._filename = filename
@@ -146,10 +139,10 @@ class SSHLogThread(LogThread):
         self._readers = readers
         if connect_timeout is None:
             self._connect_timeout = None
-        elif isinstance(connect_timeout, float):
+        elif isinstance(connect_timeout, int):
             self._connect_timeout = connect_timeout
         else:
-            self._connect_timeout = float(connect_timeout)
+            self._connect_timeout = int(connect_timeout)
         self._histograms = histograms
 
     @property
@@ -161,35 +154,40 @@ class SSHLogThread(LogThread):
         return self._environment
 
     def run(self):
-        try:
-            while not self.stop_me:
+        while not self.stop_me:
+            client = None
+            self._connected = False
+            try:
+                client = SSHClient(host=self._host, user=self._user, password=self._password,
+                                   pkey=self._pkey, timeout=self._connect_timeout)
+                self._connected = True
+                (channel, host, stdout, stderr, stdin) = client.run_command(
+                    command='tail -n0 -F "{}" 2>/dev/null'.format(self._filename), timeout=_READ_TIMEOUT)
+                _parse_file(stdout, self._environment, self._readers, self._histograms)
                 self._connected = False
-                with paramiko.SSHClient() as client:
-                    client.load_system_host_keys()
-                    client.set_missing_host_key_policy(paramiko.WarningPolicy())
-                    try:
-                        client.connect(hostname=self._host, port=22,
-                                       username=self._user, password=self._password,
-                                       key_filename=self._pkey,
-                                       timeout=self._connect_timeout)
-                    except socket.timeout:
-                        _get_logger().warning("Connect attempt to {} timed out, retrying".format(self._host))
-                        continue
-                    except (socket.error, paramiko.SSHException):
-                        _get_logger().error("Connect attempt to {} failed, not trying again".format(self._host))
-                        break
-
-                    self._connected = True
-                    try:
-                        ssh_stdin, ssh_stdout, ssh_stderr = client.exec_command(
-                            'tail -n0 -F "{}" 2>/dev/null'.format(self._filename),
-                            bufsize=1, timeout=_READ_TIMEOUT)
-                        _parse_file(ssh_stdout, self._environment, self._readers, self._histograms)
-                    except socket.timeout:
-                        continue
-                    self._connected = False
-                    sleep(1)
-        except:
-            _get_logger().warning("SSH failure", exc_info=True)
-            _thread.interrupt_main()
-            exit(1)
+                sleep(1)
+            except (pssh.exceptions.AuthenticationException, pssh.exceptions.SSHException, pssh.exceptions.SessionError,
+                    pssh.exceptions.PKeyFileError):
+                self._connected = False
+                _get_logger().error('Authentication error: {}'.format(self._host), exc_info=True)
+                sleep(30)
+                continue
+            except (pssh.exceptions.ConnectionErrorException, pssh.exceptions.UnknownHostException):
+                self._connected = False
+                _get_logger().error('Connection error: {}'.format(self._host), exc_info=True)
+                sleep(30)
+                continue
+            except (pssh.exceptions.Timeout, pssh.exceptions.UnknownHostException):
+                self._connected = False
+                _get_logger().error('Timeout error: {}'.format(self._host), exc_info=True)
+                sleep(30)
+                continue
+            except:
+                self._connected = False
+                _get_logger().error('Unhandled SSH exception', exc_info=True)
+                _thread.interrupt_main()
+                exit(1)
+                break
+            finally:
+                if client:
+                    client.disconnect()
