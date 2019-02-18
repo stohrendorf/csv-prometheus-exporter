@@ -1,16 +1,17 @@
-FROM python:3
-
-RUN mkdir /app
+FROM microsoft/dotnet:sdk AS build-env
 WORKDIR /app
-ENV SCRAPECONFIG=/etc/scrapeconfig.yml
 
-COPY requirements.txt ./
-RUN pip3 install \
-  --no-cache-dir \
-  -r requirements.txt \
-  --upgrade
+# Copy csproj and restore as distinct layers
+COPY *.csproj ./
+RUN dotnet restore
 
-COPY . .
+# Copy everything else and build
+COPY . ./
+RUN dotnet publish -c Release -o out
 
+# Build runtime image
+FROM microsoft/dotnet:aspnetcore-runtime
+WORKDIR /app
+COPY --from=build-env /app/out .
 EXPOSE 5000
-CMD ["python3", "app.py"]
+ENTRYPOINT ["dotnet", "csv-prometheus-exporter.dll"]

@@ -1,5 +1,6 @@
-venv/
 .idea/
 scrapeconfig.yml
-__pycache__/
-*.pyc
+bin/
+obj/
+out/
+*.user

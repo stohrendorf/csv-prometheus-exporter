@@ -1,6 +1,5 @@
 global:
   prefix: weblog # prefix:metric_name{labels...}
-  ttl: 60 # after how many seconds a metric can be discarded/reset after inactivity to avoid piling up metrics
   format: # based on "%h %l %u %t \"%r\" %>s %b"
   - remote_host: label
   - ~ # ignore remote logname; unnamed ignored column
@@ -9,10 +8,6 @@ global:
   - request_header: request_header # special parser that emits the labels "request_http_version", "request_uri" and "request_method"
   - status: label
   - body_bytes_sent: clf_number  # maps a single dash to zero, otherwise behaves like "number"
-
-local:
-- path: /var/log/apache/access_log.txt
-  environment: local
 
 ssh:
   user: random.guy
