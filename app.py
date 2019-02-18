@@ -232,7 +232,7 @@ def prometheus_app(environ, start_response):
     status = str('200 OK')
     headers = [(str('Content-type'), content_type)]
     start_response(status, headers)
-    return output
+    return ''.join(output)
 
 
 def serve_me():
