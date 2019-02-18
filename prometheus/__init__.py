@@ -144,7 +144,7 @@ class ReadWriteLock:
 
 
 _metrics_lock = ReadWriteLock()
-_metrics = defaultdict(lambda: _MetricGC(CollectorRegistry(auto_describe=True)))
+_metrics = defaultdict(lambda: _MetricGC(CollectorRegistry(auto_describe=False)))
 
 
 def _get_metrics(key: str):
@@ -205,7 +205,7 @@ def observe(name: str, documentation: str, labels: Dict[str, str], amount: Union
     _get_metrics(labels[ENVIRONMENT]).observe(full_name, documentation, labels, amount, buckets)
 
 
-def registries():
+def registries() -> List[CollectorRegistry]:
     _metrics_lock.acquire_read()
     try:
         m = list(_metrics.values())
