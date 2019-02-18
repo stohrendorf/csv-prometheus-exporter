@@ -16,9 +16,9 @@ namespace csv_prometheus_exporter
         public readonly IDictionary<string, double> Metrics = new Dictionary<string, double>();
 
 
-        public Metric(SortedDictionary<string, string> labels)
+        public Metric(IDictionary<string, string> labels)
         {
-            Labels = labels;
+            Labels = new SortedDictionary<string, string>(labels);
         }
     }
 
@@ -83,14 +83,14 @@ namespace csv_prometheus_exporter
         private readonly IList<Reader> _readers;
         private readonly SortedDictionary<string, string> _labels;
 
-        private LogParser(StreamReader stream, IList<Reader> readers, SortedDictionary<string, string> labels)
+        private LogParser(StreamReader stream, IList<Reader> readers, IDictionary<string, string> labels)
         {
             _stream = stream;
             _readers = readers;
-            _labels = labels;
+            _labels = new SortedDictionary<string, string>(labels);
         }
 
-        private Metric ConvertCsvLine(ICollection<string> line, SortedDictionary<string, string> labels)
+        private Metric ConvertCsvLine(ICollection<string> line, IDictionary<string, string> labels)
         {
             if (_readers.Count != line.Count)
             {
@@ -114,7 +114,7 @@ namespace csv_prometheus_exporter
             parser.Configuration.Delimiter = " ";
             parser.Configuration.Quote = '"';
             parser.Configuration.IgnoreBlankLines = true;
-            while (!_stream.EndOfStream)
+            while (_stream.BaseStream.CanRead)
             {
                 Metric result = null;
                 try
@@ -128,6 +128,8 @@ namespace csv_prometheus_exporter
 
                 yield return result;
             }
+
+            Console.WriteLine("End of stream");
         }
 
         public static void ParseFile(StreamReader stdout, string environment, IList<Reader> readers,
@@ -247,7 +249,7 @@ namespace csv_prometheus_exporter
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine("Unhandled exception on {0}: {1}", _host, ex.Message);
+                    Console.WriteLine("Unhandled exception on {0}: {1}", _host, ex);
                 }
 
                 Console.WriteLine("Will retry connecting to {0} in 30 seconds", _host);
