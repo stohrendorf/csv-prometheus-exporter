@@ -222,17 +222,17 @@ logging.basicConfig(format='%(asctime)-15s %(levelname)-8s [%(module)s] %(messag
 
 def prometheus_app(environ, start_response):
     params = parse_qs(environ.get('QUERY_STRING', ''))
-    output = []
+    output = b''
     encoder, content_type = choose_encoder(environ.get('HTTP_ACCEPT'))
     for r in registries():
         if 'name[]' in params:
             r = r.restricted_registry(params['name[]'])
-        output.append(encoder(r))
+        output += encoder(r)
 
     status = str('200 OK')
     headers = [(str('Content-type'), content_type)]
     start_response(status, headers)
-    return ''.join(output)
+    return [output]
 
 
 def serve_me():
