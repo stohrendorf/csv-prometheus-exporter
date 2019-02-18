@@ -15,7 +15,7 @@ namespace csv_prometheus_exporter
             out int? configReloadInterval, out YamlMappingNode scrapeConfig,
             out IDictionary<string, double[]> histograms)
         {
-            var scrapeConfigFilename = Environment.GetEnvironmentVariable("SCRAPECONFIG") ?? "scrapeconfig.yml";
+            var scrapeConfigFilename = Environment.GetEnvironmentVariable("SCRAPECONFIG") ?? "/etc/scrapeconfig.yml";
             var yaml = new YamlStream();
             yaml.Load(new StreamReader(scrapeConfigFilename));
             scrapeConfig = (YamlMappingNode) yaml.Documents[0].RootNode;
