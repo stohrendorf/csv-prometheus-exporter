@@ -86,6 +86,7 @@ namespace csv_prometheus_exporter
                     );
                     var thread = new Thread(() => scraper.Run());
                     threads[targetId] = thread;
+                    thread.IsBackground = true;
                     thread.Start();
                 }
             }

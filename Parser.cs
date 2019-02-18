@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using CsvHelper;
 using Renci.SshNet;
 using Renci.SshNet.Common;
@@ -107,7 +108,8 @@ namespace csv_prometheus_exporter
         private IEnumerable<Metric> ReadAll()
         {
             var parser = new CsvParser(_stream);
-            parser.Configuration.BadDataFound = context => Console.WriteLine("Failed to parse CSV: {0}", context.RawRecord);
+            parser.Configuration.BadDataFound =
+                context => Console.WriteLine("Failed to parse CSV: {0}", context.RawRecord);
             parser.Configuration.Delimiter = " ";
             parser.Configuration.Quote = '"';
             parser.Configuration.IgnoreBlankLines = true;
@@ -189,10 +191,14 @@ namespace csv_prometheus_exporter
         private SshClient CreateClient()
         {
             ConnectionInfo connInfo;
-            if (_pkey == null)
-                connInfo = new PrivateKeyConnectionInfo(_host, 22, _username, new PrivateKeyFile(_pkey, _password));
+            if (string.IsNullOrEmpty(_pkey))
+                connInfo = new PasswordConnectionInfo(_host, 22, _username, _password ?? string.Empty);
+            else if (!string.IsNullOrEmpty(_password))
+                connInfo = new PrivateKeyConnectionInfo(_host, 22, _username,
+                    new PrivateKeyFile(_pkey, _password));
             else
-                connInfo = new PasswordConnectionInfo(_host, 22, _username, _password);
+                connInfo = new PrivateKeyConnectionInfo(_host, 22, _username,
+                    new PrivateKeyFile(_pkey));
 
             connInfo.Timeout = TimeSpan.FromSeconds(_timeout);
             return new SshClient(connInfo);
@@ -200,28 +206,42 @@ namespace csv_prometheus_exporter
 
         public void Run()
         {
-            try
+            Console.WriteLine("Scraper thread for {0} on {1} became alive", _filename, _host);
+            while (true)
             {
-                using (var client = CreateClient())
+                try
                 {
-                    client.Connect();
-                    var cmd = client.CreateCommand($"tail -n0 -F \"{_filename}\" 2>/dev/null");
-                    var tmp = cmd.BeginExecute();
-                    using (var reader = new StreamReader(cmd.OutputStream))
+                    using (var client = CreateClient())
                     {
-                        LogParser.ParseFile(reader, _environment, _readers, _histograms);
+                        Console.WriteLine("Trying to establish connection to {0}", _host);
+                        client.Connect();
+                        Console.WriteLine("Starting tailing {0} on {1}", _filename, _host);
+                        var cmd = client.CreateCommand($"tail -n0 -F \"{_filename}\" 2>/dev/null");
+                        var tmp = cmd.BeginExecute();
+                        using (var reader = new StreamReader(cmd.OutputStream))
+                        {
+                            LogParser.ParseFile(reader, _environment, _readers, _histograms);
+                        }
+
+                        cmd.EndExecute(tmp);
+                        if (cmd.ExitStatus != 0)
+                            Console.WriteLine("Tail command failed with exit code {0} on {1}", cmd.ExitStatus, _host);
                     }
 
-                    cmd.EndExecute(tmp);
+                    Thread.Sleep(TimeSpan.FromSeconds(30));
                 }
-            }
-            catch (SshConnectionException ex)
-            {
-                Console.WriteLine("Failed to connect: {0}", ex.Message);
-            }
-            catch (SshAuthenticationException ex)
-            {
-                Console.WriteLine("Failed to authenticate: {0}", ex.Message);
+                catch (SshOperationTimeoutException ex)
+                {
+                    Console.WriteLine("Timeout on {0}: {1}", _host, ex.Message);
+                }
+                catch (SshConnectionException ex)
+                {
+                    Console.WriteLine("Failed to connect to {0}: {1}", _host, ex.Message);
+                }
+                catch (SshAuthenticationException ex)
+                {
+                    Console.WriteLine("Failed to authenticate for {0}: {1}", _host, ex.Message);
+                }
             }
         }
     }
