@@ -10,7 +10,11 @@ COPY . ./
 RUN dotnet publish -c Release -o out
 
 # Build runtime image
-FROM microsoft/dotnet:aspnetcore-runtime
+FROM microsoft/dotnet:2.1-aspnetcore-runtime-bionic
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        curl python3 python3-pip python3-yaml \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build-env /app/out .
 EXPOSE 5000
