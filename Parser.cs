@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Sockets;
 using System.Threading;
 using CsvHelper;
 using Renci.SshNet;
@@ -211,9 +212,9 @@ namespace csv_prometheus_exporter
             {
                 try
                 {
+                    Console.WriteLine("Trying to establish connection to {0}", _host);
                     using (var client = CreateClient())
                     {
-                        Console.WriteLine("Trying to establish connection to {0}", _host);
                         client.Connect();
                         Console.WriteLine("Starting tailing {0} on {1}", _filename, _host);
                         var cmd = client.CreateCommand($"tail -n0 -F \"{_filename}\" 2>/dev/null");
@@ -227,8 +228,6 @@ namespace csv_prometheus_exporter
                         if (cmd.ExitStatus != 0)
                             Console.WriteLine("Tail command failed with exit code {0} on {1}", cmd.ExitStatus, _host);
                     }
-
-                    Thread.Sleep(TimeSpan.FromSeconds(30));
                 }
                 catch (SshOperationTimeoutException ex)
                 {
@@ -242,7 +241,20 @@ namespace csv_prometheus_exporter
                 {
                     Console.WriteLine("Failed to authenticate for {0}: {1}", _host, ex.Message);
                 }
+                catch (SocketException ex)
+                {
+                    Console.WriteLine("Error on socket for {0} (check firewall?): {1}", _host, ex.Message);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Unhandled exception on {0}: {1}", _host, ex.Message);
+                }
+
+                Console.WriteLine("Will retry connecting to {0} in 30 seconds", _host);
+                Thread.Sleep(TimeSpan.FromSeconds(30));
             }
+
+            // ReSharper disable once FunctionNeverReturns
         }
     }
 }
