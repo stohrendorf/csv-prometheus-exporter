@@ -4,16 +4,18 @@ import subprocess
 import threading
 from time import sleep
 from typing import Dict, List, Iterable, Callable, Tuple
+from urllib.parse import parse_qs
 from wsgiref.simple_server import make_server
 
 import yaml
-from prometheus_client import make_wsgi_app, REGISTRY, Counter, Histogram, Gauge
+from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client.exposition import choose_encoder
 from prometheus_client.utils import INF
 
 import prometheus
 from logscrape import StoppableThread, LocalLogThread, SSHLogThread, LogThread
 from parser import request_header_reader, label_reader, number_reader, clf_number_reader, Metric
-from prometheus import set_gauge
+from prometheus import set_gauge, ENVIRONMENT, registries, PARSER_ERRORS, LINES_PARSED
 
 
 def _get_logger():
@@ -44,7 +46,7 @@ class MetricsGCCaller(StoppableThread):
                     disconnected += 1
                     set_gauge("target_disconnected", "Marks a target as disconnected if not zero", {
                         'host': thread.host,
-                        'environment': thread.environment
+                        ENVIRONMENT: thread.environment
                     }, 1)
 
             _active_targets.labels(type='connected').set(connected)
@@ -168,9 +170,9 @@ def _load_readers_config(scrape_config: Dict) -> Tuple[List[Callable[[Metric, st
             readers.append(None)
             continue
 
-        if tp == 'label' and name == 'environment':
-            raise ValueError("'environment' is a reserved label name")
-        elif tp != 'label' and name in ('parser_errors', 'lines_parsed', 'in_bytes'):
+        if tp == 'label' and name == ENVIRONMENT:
+            raise ValueError("'{}' is a reserved label name".format(ENVIRONMENT))
+        elif tp != 'label' and name in (PARSER_ERRORS, LINES_PARSED):
             raise ValueError("'{}' is a reserved metric name".format(name))
 
         if '+' in tp:
@@ -218,9 +220,23 @@ def _load_scrapers_config(threads: Dict[str, LogThread], scrape_config: Dict,
 logging.basicConfig(format='%(asctime)-15s %(levelname)-8s [%(module)s] %(message)s')
 
 
+def prometheus_app(environ, start_response):
+    params = parse_qs(environ.get('QUERY_STRING', ''))
+    output = []
+    encoder, content_type = choose_encoder(environ.get('HTTP_ACCEPT'))
+    for r in registries():
+        if 'name[]' in params:
+            r = r.restricted_registry(params['name[]'])
+        output.append(encoder(r))
+
+    status = str('200 OK')
+    headers = [(str('Content-type'), content_type)]
+    start_response(status, headers)
+    return output
+
+
 def serve_me():
-    app = make_wsgi_app(REGISTRY)
-    httpd = make_server('', 5000, app)
+    httpd = make_server('', 5000, prometheus_app)
     server_thread = threading.Thread(target=httpd.serve_forever)
     server_thread.start()
 

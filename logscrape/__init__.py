@@ -6,11 +6,13 @@ from abc import ABC, abstractmethod
 from time import sleep
 from typing import List, Callable, IO, Dict
 
+import ssh2.exceptions
 from pssh.clients.native import SSHClient
 import pssh.clients.native.single
 
 import prometheus
 from parser import Metric, LogParser
+from prometheus import ENVIRONMENT, PARSER_ERRORS, LINES_PARSED
 
 _READ_TIMEOUT = 30
 pssh.clients.native.single.host_logger.setLevel(logging.ERROR)
@@ -27,14 +29,14 @@ def _parse_file(stdout: IO,
     if not environment:
         environment = 'N/A'
 
-    for entry in LogParser(stdout, readers, {'environment': environment}).read_all():
+    for entry in LogParser(stdout, readers, {ENVIRONMENT: environment}).read_all():
         if entry is None:
-            prometheus.inc_counter(name='parser_errors',
+            prometheus.inc_counter(name=PARSER_ERRORS,
                                    documentation='Number of lines which could not be parsed',
-                                   labels={'environment': environment})
+                                   labels={ENVIRONMENT: environment})
             continue
 
-        prometheus.inc_counter(name='lines_parsed',
+        prometheus.inc_counter(name=LINES_PARSED,
                                documentation='Number of successfully parsed lines',
                                labels=entry.labels)
 
@@ -86,6 +88,7 @@ class LocalLogThread(LogThread):
     def __init__(self, filename: str, environment: str, readers: List[Callable[[Metric, str], None]],
                  histograms: Dict[str, List[float]]):
         super().__init__()
+        self.name = 'logthread:localhost'
         self._filename = filename
         self._environment = environment
         self._readers = readers
@@ -130,6 +133,7 @@ class SSHLogThread(LogThread):
                  connect_timeout: int,
                  histograms: Dict[str, List[float]]):
         super().__init__()
+        self.name = 'logthread:' + host
         self._filename = filename
         self._host = host
         self._user = user
@@ -167,19 +171,20 @@ class SSHLogThread(LogThread):
                 self._connected = False
                 sleep(1)
             except (pssh.exceptions.AuthenticationException, pssh.exceptions.SSHException, pssh.exceptions.SessionError,
-                    pssh.exceptions.PKeyFileError):
+                    pssh.exceptions.PKeyFileError) as e:
                 self._connected = False
-                _get_logger().error('Authentication error: {}'.format(self._host), exc_info=True)
+                _get_logger().error('Authentication error: {} - {}'.format(self._host, e))
                 sleep(30)
                 continue
-            except (pssh.exceptions.ConnectionErrorException, pssh.exceptions.UnknownHostException):
+            except (pssh.exceptions.ConnectionErrorException, pssh.exceptions.UnknownHostException) as e:
                 self._connected = False
-                _get_logger().error('Connection error: {}'.format(self._host), exc_info=True)
+                _get_logger().error('Connection error: {} - {}'.format(self._host, e))
                 sleep(30)
                 continue
-            except (pssh.exceptions.Timeout, pssh.exceptions.UnknownHostException):
+            except (
+            pssh.exceptions.Timeout, ssh2.exceptions.SocketRecvError, ssh2.exceptions.SocketDisconnectError) as e:
                 self._connected = False
-                _get_logger().error('Timeout error: {}'.format(self._host), exc_info=True)
+                _get_logger().error('Timeout/disconnect error: {} - {}'.format(self._host, e))
                 sleep(30)
                 continue
             except:
