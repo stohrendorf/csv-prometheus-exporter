@@ -133,7 +133,7 @@ namespace csv_prometheus_exporter
         }
 
         public static void ParseFile(StreamReader stdout, string environment, IList<Reader> readers,
-            IDictionary<string, double[]> histograms)
+            Dictionary<string, MetricsMeta> metrics)
         {
             if (string.IsNullOrEmpty(environment))
                 environment = "N/A";
@@ -144,28 +144,22 @@ namespace csv_prometheus_exporter
             {
                 if (entry == null)
                 {
-                    MetricsUtil.IncCounter("parser_errors", "Number of lines which could not be parsed", envDict);
+                    metrics["parser_errors"].GetMetrics(envDict).Add(1);
                     continue;
                 }
 
-                MetricsUtil.IncCounter("lines_parsed", "Number of successfully parsed lines", entry.Labels);
+                metrics["lines_parsed"].GetMetrics(entry.Labels).Add(1);
 
                 foreach (var (name, amount) in entry.Metrics)
                 {
-                    if (histograms.TryGetValue(name, out var histogram))
-                    {
-                        MetricsUtil.Observe(name, $"Histogram of \"{name}\"", entry.Labels, histogram, amount);
-                    }
-                    else
-                    {
-                        MetricsUtil.IncCounter(name, $"Sum of \"{name}\"", entry.Labels, amount);
-                    }
+                    if (metrics.TryGetValue(name, out var metric))
+                        metric.GetMetrics(entry.Labels).Add(amount);
                 }
             }
         }
     }
 
-    class SSHLogScraper
+    public sealed class SSHLogScraper
     {
         private readonly string _host;
         private readonly string _username;
@@ -175,10 +169,10 @@ namespace csv_prometheus_exporter
         private readonly string _environment;
         private readonly int _timeout;
         private readonly IList<Reader> _readers;
-        private readonly IDictionary<string, double[]> _histograms;
+        public readonly Dictionary<string, MetricsMeta> Metrics;
 
         public SSHLogScraper(string filename, string environment, IList<Reader> readers, string host, string user,
-            string password, string pkey, int connectTimeout, IDictionary<string, double[]> histograms)
+            string password, string pkey, int connectTimeout, IDictionary<string, MetricsMeta> metrics)
         {
             _filename = filename;
             _host = host;
@@ -187,8 +181,12 @@ namespace csv_prometheus_exporter
             _pkey = pkey;
             _environment = environment;
             _readers = readers;
-            _histograms = histograms;
             _timeout = connectTimeout;
+            Metrics = metrics.ToDictionary(_ => _.Key, _ => _.Value.Clone());
+            Metrics["parser_errors"] =
+                new MetricsMeta("parser_errors", "Number of lines which could not be parsed", Type.Counter);
+            Metrics["lines_parsed"] =
+                new MetricsMeta("lines_parsed", "Number of successfully parsed lines", Type.Counter);
         }
 
         private SshClient CreateClient()
@@ -223,7 +221,7 @@ namespace csv_prometheus_exporter
                         var tmp = cmd.BeginExecute();
                         using (var reader = new StreamReader(cmd.OutputStream))
                         {
-                            LogParser.ParseFile(reader, _environment, _readers, _histograms);
+                            LogParser.ParseFile(reader, _environment, _readers, Metrics);
                         }
 
                         cmd.EndExecute(tmp);

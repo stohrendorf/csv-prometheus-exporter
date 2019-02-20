@@ -3,31 +3,102 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Text;
 using System.Threading;
-using Prometheus;
+using Microsoft.AspNetCore;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using YamlDotNet.RepresentationModel;
 
 namespace csv_prometheus_exporter
 {
+    public class Startup
+    {
+        // This method gets called by the runtime. Use this method
+        // to add services to the container.
+        public void ConfigureServices(IServiceCollection services)
+        {
+            services.AddRouting();
+        }
+
+        public static readonly Dictionary<string, SSHLogScraper> Scrapers = new Dictionary<string, SSHLogScraper>();
+
+        // This method gets called by the runtime. Use this method
+        // to configure the HTTP request pipeline.
+        public void Configure(IApplicationBuilder app)
+        {
+            var routeBuilder = new RouteBuilder(app);
+
+            routeBuilder.MapGet("metrics", context =>
+            {
+                var aggregated = new Dictionary<string, MetricsMeta>();
+
+                lock (Scrapers)
+                {
+                    foreach (var scraper in Scrapers.Values)
+                    {
+                        Dictionary<string, MetricsMeta> m;
+                        lock (scraper.Metrics)
+                        {
+                            m = new Dictionary<string, MetricsMeta>(scraper.Metrics);
+                        }
+
+                        foreach (var (k, v) in m)
+                        {
+                            if (!aggregated.TryGetValue(k, out var existing))
+                            {
+                                aggregated[k] = v.TTLClone();
+                            }
+                            else
+                            {
+                                existing.AddAll(v.TTLClone());
+                            }
+                        }
+                    }
+                }
+
+                context.Response.Headers["Content-type"] = "text/plain; version=0.0.4; charset=utf-8";
+
+                var result = new StringBuilder {Capacity = 100 << 20}; // 100 MB
+                foreach (var aggregatedMetric in aggregated.Values)
+                {
+                    result.Append(aggregatedMetric.Header).Append("\n");
+                    foreach (var metric in aggregatedMetric.GetAllMetrics())
+                    {
+                        result.Append(metric.Expose()).Append("\n");
+                    }
+                }
+
+                return context.Response.WriteAsync(result.ToString());
+            });
+
+            app.UseRouter(routeBuilder.Build());
+        }
+    }
+
     internal static class Program
     {
         private static void ReadCoreConfig(out IList<Reader> readers, out string scrapeConfigScript,
             out int? configReloadInterval, out YamlMappingNode scrapeConfig,
-            out IDictionary<string, double[]> histograms)
+            out IDictionary<string, MetricsMeta> metrics)
         {
             var scrapeConfigFilename = Environment.GetEnvironmentVariable("SCRAPECONFIG") ?? "/etc/scrapeconfig.yml";
             var yaml = new YamlStream();
             yaml.Load(new StreamReader(scrapeConfigFilename));
             scrapeConfig = (YamlMappingNode) yaml.Documents[0].RootNode;
 
-            LoadReadersConfig(scrapeConfig, out readers, out histograms);
+            LoadReadersConfig(scrapeConfig, out readers, out metrics);
             configReloadInterval = scrapeConfig.Int("reload-interval");
 
             scrapeConfigScript = scrapeConfig.String("script");
         }
 
         private static void LoadFromScript(IDictionary<string, Thread> threads, string scrapeConfigScript,
-            IList<Reader> readers, IDictionary<string, double[]> histograms)
+            IList<Reader> readers, IDictionary<string, MetricsMeta> metrics)
         {
             var yaml = new YamlStream();
             var split = scrapeConfigScript.Split(' ');
@@ -37,7 +108,7 @@ namespace csv_prometheus_exporter
                 RedirectStandardOutput = true,
                 RedirectStandardInput = true,
                 UseShellExecute = false,
-                CreateNoWindow=true
+                CreateNoWindow = true
             };
             foreach (var arg in split.Skip(1))
             {
@@ -49,11 +120,12 @@ namespace csv_prometheus_exporter
             process.WaitForExit();
             yaml.Load(process.StandardOutput);
             var scrapeConfig = (YamlMappingNode) yaml.Documents[0].RootNode;
-            LoadScrapersConfig(threads, scrapeConfig, readers, histograms);
+            LoadScrapersConfig(threads, scrapeConfig, readers, metrics);
         }
 
-        private static HashSet<string> LoadSshScrapersConfig(IDictionary<string, Thread> threads, YamlMappingNode config,
-            IList<Reader> readers, IDictionary<string, double[]> histograms)
+        private static HashSet<string> LoadSshScrapersConfig(IDictionary<string, Thread> threads,
+            YamlMappingNode config,
+            IList<Reader> readers, IDictionary<string, MetricsMeta> metrics)
         {
             var ids = new HashSet<string>();
             var defaultFile = config.String("file");
@@ -81,11 +153,13 @@ namespace csv_prometheus_exporter
                         envConfig.String("user") ?? defaultUser,
                         envConfig.String("password") ?? defaultPassword,
                         envConfig.String("pkey") ?? defaultPkey,
-                        (envConfig.Int("connect-timeout") ?? defaultConnectTimeout).Value,
-                        histograms
+                        envConfig.Int("connect-timeout") ?? defaultConnectTimeout ?? 30,
+                        metrics
                     );
                     var thread = new Thread(() => scraper.Run());
                     threads[targetId] = thread;
+                    lock (Startup.Scrapers)
+                        Startup.Scrapers[targetId] = scraper;
                     thread.IsBackground = true;
                     thread.Start();
                 }
@@ -95,24 +169,25 @@ namespace csv_prometheus_exporter
         }
 
         private static void LoadReadersConfig(YamlMappingNode scrapeConfig, out IList<Reader> readers,
-            out IDictionary<string, double[]> histograms)
+            out IDictionary<string, MetricsMeta> metrics)
         {
             readers = new List<Reader>();
-            var histogramTypes = new Dictionary<string, double[]>();
+            var histogramBuckets = new Dictionary<string, double[]>();
             foreach (var (histogramName, yamlBuckets) in scrapeConfig.Map("global").StringMap("histograms"))
             {
                 var buckets = (YamlSequenceNode) yamlBuckets;
-                if (histogramTypes.ContainsKey(histogramName))
+                if (histogramBuckets.ContainsKey(histogramName))
                     throw new Exception($"Duplicate histogram definition of {histogramName}");
 
                 if (buckets == null || buckets.Children.Count == 0)
-                    histogramTypes[histogramName] = null;
+                    histogramBuckets[histogramName] =
+                        LocalHistogram.DefaultBuckets;
                 else
-                    histogramTypes[histogramName] =
+                    histogramBuckets[histogramName] =
                         buckets.Cast<YamlScalarNode>().Select(x => double.Parse(x.Value)).ToArray();
             }
 
-            histograms = new Dictionary<string, double[]>();
+            metrics = new Dictionary<string, MetricsMeta>();
             foreach (var fmtEntry in scrapeConfig.Map("global").List("format"))
             {
                 if (fmtEntry is YamlScalarNode scalar && scalar.Value == "~")
@@ -148,10 +223,17 @@ namespace csv_prometheus_exporter
                 {
                     var spl = tp.Split('+');
                     tp = spl[0].Trim();
+                    if (tp == "label")
+                        throw new Exception("Labels cannot be used as histograms");
                     var histogramType = spl[1].Trim();
-                    if (!histogramTypes.ContainsKey(histogramType))
+                    if (!histogramBuckets.ContainsKey(histogramType))
                         throw new Exception($"Histogram type {histogramType} is not defined");
-                    histograms[name] = histogramTypes[histogramType];
+                    metrics[name] = new MetricsMeta(name, $"Histogram of {name}", Type.Histogram,
+                        histogramBuckets[histogramType]);
+                }
+                else if (tp != "label")
+                {
+                    metrics[name] = new MetricsMeta(name, $"Sum of {name}", Type.Counter);
                 }
 
                 switch (tp)
@@ -171,14 +253,15 @@ namespace csv_prometheus_exporter
                 }
             }
 
-            MetricsUtil.Prefix = scrapeConfig.Map("global").String("prefix");
+            MetricsMeta.GlobalPrefix = scrapeConfig.Map("global").String("prefix");
+            MetricsMeta.TTL = scrapeConfig.Map("global").Int("ttl") ?? 60;
         }
 
         private static void LoadScrapersConfig(IDictionary<string, Thread> threads, YamlMappingNode scrapeConfig,
-            IList<Reader> readers, IDictionary<string, double[]> histograms)
+            IList<Reader> readers, IDictionary<string, MetricsMeta> metrics)
         {
             var loadedIds = LoadSshScrapersConfig(threads, scrapeConfig.Map("ssh") ?? new YamlMappingNode(), readers,
-                histograms);
+                metrics);
             foreach (var (threadId, thread) in threads)
             {
                 if (!loadedIds.Contains(threadId))
@@ -188,27 +271,42 @@ namespace csv_prometheus_exporter
             }
         }
 
-        private static void Main()
+        private static void Main(string[] args)
         {
+            ServicePointManager.DefaultConnectionLimit = 5;
+
+            ThreadPool.GetMaxThreads(out _, out var completionThreads);
+            ThreadPool.SetMinThreads(512, completionThreads);
+
             ReadCoreConfig(out var readers, out var scrapeConfigScript, out var configReloadInterval,
-                out var scrapeConfig, out var histograms);
+                out var scrapeConfig, out var metrics);
             var threads = new Dictionary<string, Thread>();
-            LoadScrapersConfig(threads, scrapeConfig, readers, histograms);
+            LoadScrapersConfig(threads, scrapeConfig, readers, metrics);
 
-            var metricServer = new KestrelMetricServer(5000);
-            metricServer.Start();
-
-            while (true)
+            var loaderThread = new Thread(() =>
             {
-                if (scrapeConfigScript != null)
+                while (true)
                 {
-                    LoadFromScript(threads, scrapeConfigScript, readers, histograms);
+                    if (scrapeConfigScript != null)
+                    {
+                        LoadFromScript(threads, scrapeConfigScript, readers, metrics);
+                    }
+
+                    Thread.Sleep(configReloadInterval.HasValue
+                        ? TimeSpan.FromSeconds(configReloadInterval.Value)
+                        : TimeSpan.FromDays(365));
                 }
 
-                Thread.Sleep(configReloadInterval.HasValue
-                    ? TimeSpan.FromSeconds(configReloadInterval.Value)
-                    : TimeSpan.FromDays(365));
-            }
+                // ReSharper disable once FunctionNeverReturns
+            });
+
+            loaderThread.Start();
+
+            WebHost.CreateDefaultBuilder(args)
+                .UseStartup<Startup>()
+                .UseKestrel(options => { options.ListenAnyIP(5000); })
+                .Build()
+                .Run();
             // ReSharper disable once FunctionNeverReturns
         }
     }
