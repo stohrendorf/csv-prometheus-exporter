@@ -98,19 +98,20 @@ namespace csv_prometheus_exporter
             }
         }
 
-        public IEnumerable<LocalMetrics> GetAllMetrics()
+        public IEnumerable<LocalMetrics> GetTTLMetrics()
         {
-            lock (_metrics)
-                return _metrics.Values.Select(_ => _.Value).ToList();
-        }
-
-        public MetricsMeta TTLClone()
-        {
-            var result = Clone();
             var now = DateTime.Now;
             lock (_metrics)
+                return _metrics.Where(kv => kv.Value.Key + TimeSpan.FromSeconds(TTL) >= now).Select(_ => _.Value.Value)
+                    .ToList();
+        }
+
+        public MetricsMeta FullClone()
+        {
+            var result = Clone();
+            lock (_metrics)
             {
-                foreach (var (labels, ttlM) in _metrics.Where(kv => kv.Value.Key + TimeSpan.FromSeconds(TTL) >= now))
+                foreach (var (labels, ttlM) in _metrics)
                 {
                     result._metrics[labels] = ttlM;
                 }

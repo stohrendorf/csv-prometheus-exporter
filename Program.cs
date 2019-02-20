@@ -51,11 +51,11 @@ namespace csv_prometheus_exporter
                         {
                             if (!aggregated.TryGetValue(k, out var existing))
                             {
-                                aggregated[k] = v.TTLClone();
+                                aggregated[k] = v.FullClone();
                             }
                             else
                             {
-                                existing.AddAll(v.TTLClone());
+                                existing.AddAll(v.FullClone());
                             }
                         }
                     }
@@ -67,7 +67,7 @@ namespace csv_prometheus_exporter
                 foreach (var aggregatedMetric in aggregated.Values)
                 {
                     result.Append(aggregatedMetric.Header).Append("\n");
-                    foreach (var metric in aggregatedMetric.GetAllMetrics())
+                    foreach (var metric in aggregatedMetric.GetTTLMetrics())
                     {
                         result.Append(metric.Expose()).Append("\n");
                     }
