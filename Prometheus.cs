@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using JetBrains.Annotations;
 
@@ -17,6 +18,18 @@ namespace csv_prometheus_exporter
         Summary
     }
 
+
+    public class MetricsTTL
+    {
+        public DateTime LastUpdated = DateTime.Now;
+        public readonly LocalMetrics Metrics;
+
+        public MetricsTTL([NotNull] LocalMetrics metrics)
+        {
+            Metrics = metrics;
+        }
+    }
+
     public sealed class MetricsMeta
     {
         public static string GlobalPrefix = null;
@@ -27,9 +40,8 @@ namespace csv_prometheus_exporter
         public Type Type { get; }
         [CanBeNull] private double[] Buckets { get; }
 
-        [NotNull]
-        private readonly IDictionary<SortedDictionary<string, string>, KeyValuePair<DateTime, LocalMetrics>> _metrics =
-            new Dictionary<SortedDictionary<string, string>, KeyValuePair<DateTime, LocalMetrics>>();
+        [NotNull] private readonly IDictionary<SortedDictionary<string, string>, MetricsTTL> _metrics =
+            new Dictionary<SortedDictionary<string, string>, MetricsTTL>();
 
         private static bool IsValidMetricsBasename([NotNull] string name)
         {
@@ -65,9 +77,22 @@ namespace csv_prometheus_exporter
 
         public string PrefixedName => !string.IsNullOrEmpty(GlobalPrefix) ? $"{GlobalPrefix}:{BaseName}" : BaseName;
 
-        public string Header =>
+        private string Header =>
             string.Format("# HELP {0} {1}\n# TYPE {0} {2}", PrefixedName,
                 Help.Replace(@"\", @"\\").Replace("\n", @"\n"), Type.ToString().ToLower());
+
+        public void ExposeTo([NotNull] StringBuilder stringBuilder)
+        {
+            stringBuilder.Append(Header).Append('\n');
+            var now = DateTime.Now;
+            foreach (var ttlM in _metrics.Values)
+            {
+                if (ttlM.LastUpdated + TimeSpan.FromSeconds(TTL) < now)
+                    continue;
+                ttlM.Metrics.ExposeTo(stringBuilder);
+                stringBuilder.Append('\n');
+            }
+        }
 
         private LocalMetrics CreateMetrics([NotNull] SortedDictionary<string, string> labels)
         {
@@ -91,19 +116,11 @@ namespace csv_prometheus_exporter
         {
             lock (_metrics)
             {
-                var m = !_metrics.TryGetValue(labels, out var ttlM) ? CreateMetrics(labels) : ttlM.Value;
+                var m = !_metrics.TryGetValue(labels, out var ttlM) ? CreateMetrics(labels) : ttlM.Metrics;
 
-                _metrics[labels] = new KeyValuePair<DateTime, LocalMetrics>(DateTime.Now, m);
+                _metrics[labels] = new MetricsTTL(m);
                 return m;
             }
-        }
-
-        public IEnumerable<LocalMetrics> GetTTLMetrics()
-        {
-            var now = DateTime.Now;
-            lock (_metrics)
-                return _metrics.Where(kv => kv.Value.Key + TimeSpan.FromSeconds(TTL) >= now).Select(_ => _.Value.Value)
-                    .ToList();
         }
 
         public MetricsMeta FullClone()
@@ -120,14 +137,18 @@ namespace csv_prometheus_exporter
             return result;
         }
 
-        public void AddAll([NotNull] MetricsMeta other)
+        public void Merge([NotNull] MetricsMeta other)
         {
-            lock (_metrics)
+            lock (other._metrics)
             {
                 foreach (var (labels, ttlM) in other._metrics)
                 {
                     if (_metrics.TryGetValue(labels, out var existing))
-                        existing.Value.AddAll(ttlM.Value);
+                    {
+                        existing.Metrics.MergeAll(ttlM.Metrics);
+                        if (existing.LastUpdated < ttlM.LastUpdated)
+                            existing.LastUpdated = ttlM.LastUpdated;
+                    }
                     else
                         _metrics[labels] = ttlM;
                 }
@@ -167,11 +188,11 @@ namespace csv_prometheus_exporter
                 .Select(_ => $"{_.Key}={Quote(_.Value)}"));
         }
 
-        public abstract string Expose();
+        public abstract void ExposeTo(StringBuilder stringBuilder);
 
         public abstract void Add(double value);
 
-        public abstract void AddAll([NotNull] LocalMetrics other);
+        public abstract void MergeAll([NotNull] LocalMetrics other);
 
         private static string Quote([NotNull] string s)
         {
@@ -209,9 +230,9 @@ namespace csv_prometheus_exporter
             _name = QualifiedName();
         }
 
-        public override string Expose()
+        public override void ExposeTo(StringBuilder stringBuilder)
         {
-            return $"{_name} {_value}";
+            stringBuilder.Append(_name).Append(' ').Append(_value);
         }
 
         public override void Add(double value)
@@ -220,7 +241,7 @@ namespace csv_prometheus_exporter
             _value += value;
         }
 
-        public override void AddAll(LocalMetrics other)
+        public override void MergeAll(LocalMetrics other)
         {
             if (!(other is LocalCounter o))
                 throw new ArgumentException("Incompatible type", nameof(other));
@@ -241,9 +262,9 @@ namespace csv_prometheus_exporter
             _name = QualifiedName();
         }
 
-        public override string Expose()
+        public override void ExposeTo(StringBuilder stringBuilder)
         {
-            return $"{_name} {_value}";
+            stringBuilder.Append(_name).Append(' ').Append(_value);
         }
 
         public override void Add(double value)
@@ -251,7 +272,7 @@ namespace csv_prometheus_exporter
             _value += value;
         }
 
-        public override void AddAll(LocalMetrics other)
+        public override void MergeAll(LocalMetrics other)
         {
             if (!(other is LocalGauge o))
                 throw new ArgumentException("Incompatible type", nameof(other));
@@ -293,17 +314,16 @@ namespace csv_prometheus_exporter
             _countName = ExtendBaseName(name, "_count");
         }
 
-        public override string Expose()
+        public override void ExposeTo(StringBuilder stringBuilder)
         {
-            string result = "";
             for (int i = 0; i < _buckets.Length; ++i)
             {
-                result += $"{_bucketName.Replace("$$$$$", ToGoString(_buckets[i]))} {_counts[i]}\n";
+                stringBuilder.Append(_bucketName.Replace("$$$$$", ToGoString(_buckets[i])))
+                    .Append(' ').Append(_counts[i]).Append('\n');
             }
 
-            result += $"{_countName} {_observations}";
-            result += $"{_sumName} {_sum}";
-            return result;
+            stringBuilder.Append(_countName).Append(' ').Append(_observations).Append('\n')
+                .Append(_sumName).Append(' ').Append(_sum);
         }
 
         public override void Add(double value)
@@ -320,7 +340,7 @@ namespace csv_prometheus_exporter
             }
         }
 
-        public override void AddAll(LocalMetrics other)
+        public override void MergeAll(LocalMetrics other)
         {
             if (!(other is LocalHistogram o))
                 throw new ArgumentException("Incompatible type", nameof(other));
@@ -348,9 +368,10 @@ namespace csv_prometheus_exporter
             _countName = ExtendBaseName(name, "_count");
         }
 
-        public override string Expose()
+        public override void ExposeTo(StringBuilder stringBuilder)
         {
-            return $"{_sumName} {_sum}" + "\n" + $"{_countName} {_count}";
+            stringBuilder.Append(_sumName).Append(' ').Append(_sum).Append('\n')
+                .Append(_countName).Append(' ').Append(_count);
         }
 
         public override void Add(double value)
@@ -359,7 +380,7 @@ namespace csv_prometheus_exporter
             ++_count;
         }
 
-        public override void AddAll(LocalMetrics other)
+        public override void MergeAll(LocalMetrics other)
         {
             if (!(other is LocalSummary o))
                 throw new ArgumentException("Incompatible type", nameof(other));

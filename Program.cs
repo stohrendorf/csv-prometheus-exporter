@@ -55,7 +55,7 @@ namespace csv_prometheus_exporter
                             }
                             else
                             {
-                                existing.AddAll(v.FullClone());
+                                existing.Merge(v);
                             }
                         }
                     }
@@ -66,11 +66,8 @@ namespace csv_prometheus_exporter
                 var result = new StringBuilder {Capacity = 100 << 20}; // 100 MB
                 foreach (var aggregatedMetric in aggregated.Values)
                 {
-                    result.Append(aggregatedMetric.Header).Append("\n");
-                    foreach (var metric in aggregatedMetric.GetTTLMetrics())
-                    {
-                        result.Append(metric.Expose()).Append("\n");
-                    }
+                    aggregatedMetric.ExposeTo(result);
+                    result.Append('\n');
                 }
 
                 return context.Response.WriteAsync(result.ToString());
@@ -231,7 +228,7 @@ namespace csv_prometheus_exporter
                     metrics[name] = new MetricsMeta(name, $"Histogram of {name}", Type.Histogram,
                         histogramBuckets[histogramType]);
                 }
-                else if (tp != "label")
+                else if (tp != "label" && tp != "request_header")
                 {
                     metrics[name] = new MetricsMeta(name, $"Sum of {name}", Type.Counter);
                 }
@@ -292,9 +289,10 @@ namespace csv_prometheus_exporter
                         LoadFromScript(threads, scrapeConfigScript, readers, metrics);
                     }
 
-                    Thread.Sleep(configReloadInterval.HasValue
-                        ? TimeSpan.FromSeconds(configReloadInterval.Value)
-                        : TimeSpan.FromDays(365));
+                    if (configReloadInterval.HasValue)
+                        Thread.Sleep(TimeSpan.FromSeconds(configReloadInterval.Value));
+                    else
+                        Thread.Sleep(-1);
                 }
 
                 // ReSharper disable once FunctionNeverReturns
