@@ -111,10 +111,11 @@ namespace csv_prometheus_exporter
 
         private IEnumerable<ParsedMetrics> ReadAll()
         {
-            using (var parser = new CsvReader(_stream, Encoding.UTF8,
-                new CsvReader.Config() {Quotes = '"', ColumnSeparator = ' '}))
+            using (var sshStream = new SSHStream(_stream))
+            using (var parser = new CsvReader(sshStream, Encoding.UTF8,
+                new CsvReader.Config
+                    {Quotes = '"', ColumnSeparator = ' ', ReadinBufferSize = 1024, WithQuotes = false}))
             {
-                parser.Reset();
                 while (_stream.CanRead)
                 {
                     ParsedMetrics result = null;
@@ -124,14 +125,13 @@ namespace csv_prometheus_exporter
                         {
                             result = ConvertCsvLine(parser.Current, _labels);
                         }
-                        else
-                        {
-                            parser.Reset();
-                        }
                     }
-                    catch
+                    catch (ParserError)
                     {
-                        // ignored
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Fatal(ex, $"Unexpected exception: {ex.Message}");
                     }
 
                     yield return result;
