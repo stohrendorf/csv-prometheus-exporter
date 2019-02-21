@@ -45,7 +45,7 @@ namespace csv_prometheus_exporter
         {
             if (Environment != other.Environment)
                 return false;
-            
+
             if (Labels.Count != other.Labels.Count)
                 return false;
 
@@ -70,6 +70,25 @@ namespace csv_prometheus_exporter
                 result = result * 31 + key.GetHashCode() * 17 + value.GetHashCode();
 
             return result;
+        }
+
+        public string ToString(string le)
+        {
+            string result = $"environment={Quote(Environment)}";
+            if (!string.IsNullOrEmpty(le))
+                result += ",le=" + Quote(le);
+
+            foreach (var (key, value) in Labels)
+            {
+                result += $",{key}={Quote(value)}";
+            }
+
+            return result;
+        }
+
+        private static string Quote([NotNull] string s)
+        {
+            return $"\"{s.Replace(@"\", @"\\").Replace("\n", @"\n").Replace("\"", "\\\"")}\"";
         }
     }
 }

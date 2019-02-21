@@ -170,15 +170,7 @@ namespace csv_prometheus_exporter
 
         protected string QualifiedName([CanBeNull] string le = null)
         {
-            return $"{Meta.PrefixedName}{{{LabelStr(le)}}}";
-        }
-
-        private string LabelStr(string le)
-        {
-            var result = string.Join(",", Labels.Labels.Select(_ => $"{_.Key}={Quote(_.Value)}"));
-            if (!string.IsNullOrEmpty(le))
-                result += "le=" + Quote(le);
-            return result;
+            return $"{Meta.PrefixedName}{{{Labels.ToString(le)}}}";
         }
 
         public abstract void ExposeTo(StreamWriter stream);
@@ -186,11 +178,6 @@ namespace csv_prometheus_exporter
         public abstract void Add(double value);
 
         public abstract void Add([NotNull] LocalMetrics other);
-
-        private static string Quote([NotNull] string s)
-        {
-            return $"\"{s.Replace(@"\", @"\\").Replace("\n", @"\n").Replace("\"", "\\\"")}\"";
-        }
 
         public abstract LocalMetrics Clone();
 
