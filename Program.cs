@@ -7,6 +7,7 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using csv_prometheus_exporter.MetricsImpl;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Builder;
@@ -30,45 +31,54 @@ namespace csv_prometheus_exporter
         public static readonly IDictionary<string, SSHLogScraper> Scrapers =
             new ConcurrentDictionary<string, SSHLogScraper>();
 
+        private static Task Collect(HttpContext context)
+        {
+            context.Response.Headers["Content-type"] = "text/plain; version=0.0.4; charset=utf-8";
+
+            var aggregation = Task.Run(() =>
+            {
+                var aggregated = new Dictionary<string, MetricsMeta>();
+
+                foreach (var scraper in Scrapers.Values)
+                {
+                    foreach (var (metricName, metricData) in scraper.Metrics)
+                    {
+                        if (!aggregated.TryGetValue(metricName, out var existing))
+                        {
+                            aggregated[metricName] = metricData.FullClone();
+                        }
+                        else
+                        {
+                            existing.Merge(metricData);
+                        }
+                    }
+                }
+
+                return aggregated;
+            });
+
+            return aggregation.ContinueWith(
+                _ =>
+                {
+                    using (var textStream = new StreamWriter(context.Response.Body, Encoding.UTF8, 8<<20))
+                    {
+                        foreach (var aggregatedMetric in _.Result.Values)
+                        {
+                            aggregatedMetric.ExposeTo(textStream);
+                        }
+                    }
+                }
+            );
+
+        }
+
         // This method gets called by the runtime. Use this method
         // to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app)
         {
             var routeBuilder = new RouteBuilder(app);
 
-            routeBuilder.MapGet("metrics", context =>
-            {
-                var aggregated = new Dictionary<string, MetricsMeta>();
-
-                foreach (var scraper in Scrapers.Values)
-                {
-                    foreach (var (k, v) in scraper.Metrics)
-                    {
-                        if (!aggregated.TryGetValue(k, out var existing))
-                        {
-                            aggregated[k] = v.FullClone();
-                        }
-                        else
-                        {
-                            existing.Merge(v);
-                        }
-                    }
-                }
-
-                context.Response.Headers["Content-type"] = "text/plain; version=0.0.4; charset=utf-8";
-
-                var result = new StringBuilder {Capacity = 100 << 20}; // 100 MB
-                using (var textStream = new StreamWriter(context.Response.Body))
-                {
-                    foreach (var aggregatedMetric in aggregated.Values)
-                    {
-                        aggregatedMetric.ExposeTo(textStream);
-                        textStream.WriteLine();
-                    }
-                }
-
-                return context.Response.WriteAsync(result.ToString());
-            });
+            routeBuilder.MapGet("metrics", Collect);
 
             app.UseRouter(routeBuilder.Build());
         }
@@ -269,8 +279,10 @@ namespace csv_prometheus_exporter
         {
             ServicePointManager.DefaultConnectionLimit = 5;
 
-            ThreadPool.GetMaxThreads(out _, out var completionThreads);
-            ThreadPool.SetMinThreads(512, completionThreads);
+            ThreadPool.GetMinThreads(out var a, out var b);
+            Console.WriteLine("Current min threads: {0}, {1}", a, b);
+            if (!ThreadPool.SetMinThreads(1024, 128))
+                throw new Exception("Failed to set minimum thread count");
 
             ReadCoreConfig(out var readers, out var scrapeConfigScript, out var configReloadInterval,
                 out var scrapeConfig, out var metrics);

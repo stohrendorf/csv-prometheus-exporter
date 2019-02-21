@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using JetBrains.Annotations;
 
@@ -10,7 +11,7 @@ namespace csv_prometheus_exporter.MetricsImpl
         private double _value;
         private readonly string _name;
 
-        public LocalGauge([NotNull] MetricsMeta meta, [NotNull] SortedDictionary<string, string> labels) : base(meta,
+        public LocalGauge([NotNull] MetricsMeta meta, [NotNull] Dictionary<string, string> labels) : base(meta,
             labels)
         {
             Debug.Assert(meta.Type == Type.Gauge);
@@ -25,9 +26,7 @@ namespace csv_prometheus_exporter.MetricsImpl
 
         public override void ExposeTo(StreamWriter stream)
         {
-            stream.Write(_name);
-            stream.Write(' ');
-            stream.Write(_value);
+            stream.WriteLine("{0} {1}",_name, _value.ToString(CultureInfo.InvariantCulture));
         }
 
         public override void Add(double value)

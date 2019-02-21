@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Sockets;
@@ -13,12 +14,12 @@ namespace csv_prometheus_exporter
 {
     public class ParsedMetrics
     {
-        public readonly SortedDictionary<string, string> Labels;
+        public readonly Dictionary<string, string> Labels;
         public readonly IDictionary<string, double> Metrics = new Dictionary<string, double>();
 
         public ParsedMetrics(IDictionary<string, string> labels)
         {
-            Labels = new SortedDictionary<string, string>(labels);
+            Labels = new Dictionary<string, string>(labels);
         }
     }
 
@@ -58,7 +59,7 @@ namespace csv_prometheus_exporter
                     return;
                 }
 
-                if (!double.TryParse(value, out var dbl))
+                if (!double.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var dbl))
                     throw new ParserError();
 
                 metric.Metrics[name] = dbl;
@@ -69,7 +70,7 @@ namespace csv_prometheus_exporter
         {
             return (metric, value) =>
             {
-                if (!double.TryParse(value, out var dbl))
+                if (!double.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var dbl))
                     throw new ParserError();
 
                 metric.Metrics[name] = dbl;
@@ -138,7 +139,7 @@ namespace csv_prometheus_exporter
             if (string.IsNullOrEmpty(environment))
                 environment = "N/A";
 
-            var envDict = new SortedDictionary<string, string> {["environment"] = environment};
+            var envDict = new Dictionary<string, string> {["environment"] = environment};
 
             foreach (var entry in new LogParser(stdout, readers, envDict).ReadAll())
             {

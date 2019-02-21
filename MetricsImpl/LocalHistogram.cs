@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using JetBrains.Annotations;
@@ -20,7 +21,7 @@ namespace csv_prometheus_exporter.MetricsImpl
         private readonly string _sumName;
         private readonly string _countName;
 
-        public LocalHistogram([NotNull] MetricsMeta meta, [NotNull] SortedDictionary<string, string> labels,
+        public LocalHistogram([NotNull] MetricsMeta meta, [NotNull] Dictionary<string, string> labels,
             [NotNull] double[] buckets) : base(meta, labels)
         {
             Debug.Assert(meta.Type == Type.Histogram);
@@ -34,7 +35,7 @@ namespace csv_prometheus_exporter.MetricsImpl
                 throw new ArgumentException("Must at least provide one bucket", nameof(buckets));
 
             _counts = Enumerable.Range(0, _buckets.Length).Select(_ => 0UL).ToArray();
-            _bucketName = QualifiedName(new SortedDictionary<string, string> {["le"] = "$$$$$"});
+            _bucketName = QualifiedName(new Dictionary<string, string> {["le"] = "$$$$$"});
             var name = QualifiedName();
             _sumName = ExtendBaseName(name, "_sum");
             _countName = ExtendBaseName(name, "_count");
@@ -53,17 +54,11 @@ namespace csv_prometheus_exporter.MetricsImpl
         {
             for (int i = 0; i < _buckets.Length; ++i)
             {
-                stream.Write(_bucketName.Replace("$$$$$", ToGoString(_buckets[i])));
-                stream.Write(' ');
-                stream.WriteLine(_counts[i]);
+                stream.WriteLine("{0} {1}", _bucketName.Replace("$$$$$", ToGoString(_buckets[i])), _counts[i]);
             }
 
-            stream.Write(_countName);
-            stream.Write(' ');
-            stream.WriteLine(_observations);
-            stream.Write(_sumName);
-            stream.Write(' ');
-            stream.Write(_sum);
+            stream.WriteLine("{0} {1}", _countName, _observations);
+            stream.WriteLine("{0} {1}", _sumName, _sum.ToString(CultureInfo.InvariantCulture));
         }
 
         public override void Add(double value)

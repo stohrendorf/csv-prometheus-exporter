@@ -47,8 +47,8 @@ namespace csv_prometheus_exporter
         public Type Type { get; }
         [CanBeNull] internal double[] Buckets { get; }
 
-        [NotNull] private readonly IDictionary<SortedDictionary<string, string>, MetricsTTL> _metrics =
-            new ConcurrentDictionary<SortedDictionary<string, string>, MetricsTTL>();
+        [NotNull] private readonly IDictionary<Dictionary<string, string>, MetricsTTL> _metrics =
+            new ConcurrentDictionary<Dictionary<string, string>, MetricsTTL>();
 
         private static bool IsValidMetricsBasename([NotNull] string name)
         {
@@ -92,11 +92,10 @@ namespace csv_prometheus_exporter
                 if (ttlM.LastUpdated < eol)
                     continue;
                 ttlM.Metrics.ExposeTo(stream);
-                stream.WriteLine();
             }
         }
 
-        private LocalMetrics CreateMetrics([NotNull] SortedDictionary<string, string> labels)
+        private LocalMetrics CreateMetrics([NotNull] Dictionary<string, string> labels)
         {
             switch (Type)
             {
@@ -114,7 +113,7 @@ namespace csv_prometheus_exporter
             }
         }
 
-        public LocalMetrics GetMetrics([NotNull] SortedDictionary<string, string> labels)
+        public LocalMetrics GetMetrics([NotNull] Dictionary<string, string> labels)
         {
             var m = !_metrics.TryGetValue(labels, out var ttlM) ? CreateMetrics(labels) : ttlM.Metrics;
 
@@ -151,32 +150,26 @@ namespace csv_prometheus_exporter
 
     public abstract class LocalMetrics
     {
-        protected SortedDictionary<string, string> Labels { get; }
+        protected Dictionary<string, string> Labels { get; }
 
         protected MetricsMeta Meta { get; }
 
-        protected LocalMetrics([NotNull] MetricsMeta meta, [NotNull] SortedDictionary<string, string> labels)
+        protected LocalMetrics([NotNull] MetricsMeta meta, [NotNull] Dictionary<string, string> labels)
         {
             Meta = meta;
             Labels = labels;
         }
 
-        protected string QualifiedName([CanBeNull] SortedDictionary<string, string> otherLabels = null)
+        protected string QualifiedName([CanBeNull] Dictionary<string, string> otherLabels = null)
         {
             if (otherLabels == null)
-                otherLabels = new SortedDictionary<string, string>();
+                otherLabels = new Dictionary<string, string>();
             return $"{Meta.PrefixedName}{{{LabelStr(otherLabels)}}}";
         }
 
-        private string LabelStr([NotNull] SortedDictionary<string, string> otherLabels)
+        private string LabelStr([NotNull] Dictionary<string, string> otherLabels)
         {
-            return ToLabelStr(Labels, otherLabels);
-        }
-
-        private static string ToLabelStr([NotNull] params SortedDictionary<string, string>[] a)
-        {
-            return string.Join(",", a.AsEnumerable()
-                .SelectMany(_ => _.AsEnumerable())
+            return string.Join(",", Labels.AsEnumerable().Concat(otherLabels.AsEnumerable())
                 .OrderBy(_ => _.Key)
                 .Select(_ => $"{_.Key}={Quote(_.Value)}"));
         }

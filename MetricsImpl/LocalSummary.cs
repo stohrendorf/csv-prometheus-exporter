@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using JetBrains.Annotations;
 
@@ -12,7 +13,7 @@ namespace csv_prometheus_exporter.MetricsImpl
         private readonly string _sumName;
         private readonly string _countName;
 
-        public LocalSummary([NotNull] MetricsMeta meta, [NotNull] SortedDictionary<string, string> labels) : base(meta,
+        public LocalSummary([NotNull] MetricsMeta meta, [NotNull] Dictionary<string, string> labels) : base(meta,
             labels)
         {
             Debug.Assert(meta.Type == Type.Gauge);
@@ -31,12 +32,8 @@ namespace csv_prometheus_exporter.MetricsImpl
 
         public override void ExposeTo(StreamWriter stream)
         {
-            stream.Write(_sumName);
-            stream.Write(' ');
-            stream.WriteLine(_sum);
-            stream.Write(_countName);
-            stream.Write(' ');
-            stream.Write(_count);
+            stream.WriteLine("{0} {1}", _sumName, _sum.ToString(CultureInfo.InvariantCulture));
+            stream.WriteLine("{0} {1}", _countName, _count);
         }
 
         public override void Add(double value)
