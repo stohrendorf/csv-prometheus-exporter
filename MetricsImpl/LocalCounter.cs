@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -8,11 +7,10 @@ namespace csv_prometheus_exporter.MetricsImpl
 {
     public sealed class LocalCounter : LocalMetrics
     {
-        private double _value;
         private readonly string _name;
+        private double _value;
 
-        public LocalCounter([NotNull] MetricsMeta meta, [NotNull] Dictionary<string, string> labels) : base(meta,
-            labels)
+        public LocalCounter([NotNull] MetricsMeta meta, [NotNull] LabelDict labels) : base(meta, labels)
         {
             Debug.Assert(meta.Type == Type.Counter);
             _name = QualifiedName();

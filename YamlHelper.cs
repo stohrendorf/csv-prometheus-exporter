@@ -1,5 +1,3 @@
-using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using YamlDotNet.RepresentationModel;
@@ -39,10 +37,7 @@ namespace csv_prometheus_exporter
 
         public static IEnumerable<string> StringList(this YamlMappingNode node, string key)
         {
-            foreach (var element in node.List(key))
-            {
-                yield return ((YamlScalarNode) element).Value;
-            }
+            foreach (var element in node.List(key)) yield return ((YamlScalarNode) element).Value;
         }
 
         public static IEnumerable<KeyValuePair<string, YamlNode>> StringMap(this YamlMappingNode node,
@@ -50,10 +45,8 @@ namespace csv_prometheus_exporter
         {
             foreach (var (yamlKey, value) in node.Map(key)?.Children ??
                                              Enumerable.Empty<KeyValuePair<YamlNode, YamlNode>>())
-            {
                 yield return new KeyValuePair<string, YamlNode>(((YamlScalarNode) yamlKey).Value,
                     value is YamlScalarNode scalar && scalar.Value == "~" ? null : value);
-            }
         }
     }
 }

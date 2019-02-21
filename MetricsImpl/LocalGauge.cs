@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -8,11 +7,10 @@ namespace csv_prometheus_exporter.MetricsImpl
 {
     public sealed class LocalGauge : LocalMetrics
     {
-        private double _value;
         private readonly string _name;
+        private double _value;
 
-        public LocalGauge([NotNull] MetricsMeta meta, [NotNull] Dictionary<string, string> labels) : base(meta,
-            labels)
+        public LocalGauge([NotNull] MetricsMeta meta, [NotNull] LabelDict labels) : base(meta, labels)
         {
             Debug.Assert(meta.Type == Type.Gauge);
             _name = QualifiedName();
@@ -26,7 +24,7 @@ namespace csv_prometheus_exporter.MetricsImpl
 
         public override void ExposeTo(StreamWriter stream)
         {
-            stream.WriteLine("{0} {1}",_name, _value.ToString(CultureInfo.InvariantCulture));
+            stream.WriteLine("{0} {1}", _name, _value.ToString(CultureInfo.InvariantCulture));
         }
 
         public override void Add(double value)

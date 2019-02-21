@@ -22,8 +22,8 @@ namespace csv_prometheus_exporter
 
     public sealed class MetricsTTL
     {
-        public DateTime LastUpdated;
         public readonly LocalMetrics Metrics;
+        public DateTime LastUpdated;
 
         public MetricsTTL([NotNull] LocalMetrics metrics, DateTime? lastUpdated = null)
         {
@@ -42,20 +42,8 @@ namespace csv_prometheus_exporter
         public static string GlobalPrefix = null;
         public static int TTL = 60;
 
-        [NotNull] internal string BaseName { get; }
-        [NotNull] internal string Help { get; }
-        public Type Type { get; }
-        [CanBeNull] internal double[] Buckets { get; }
-
-        [NotNull] private readonly IDictionary<Dictionary<string, string>, MetricsTTL> _metrics =
-            new ConcurrentDictionary<Dictionary<string, string>, MetricsTTL>();
-
-        private static bool IsValidMetricsBasename([NotNull] string name)
-        {
-            return new Regex("^[a-zA-Z0-9:_]+$").IsMatch(name)
-                   && !new[] {"_sum", "_count", "_bucket", "_total"}.Any(name.EndsWith)
-                   && !new[] {"process_", "scrape_"}.Any(name.StartsWith);
-        }
+        [NotNull] private readonly IDictionary<LabelDict, MetricsTTL> _metrics =
+            new ConcurrentDictionary<LabelDict, MetricsTTL>();
 
         public MetricsMeta([NotNull] string baseName, [NotNull] string help, Type type,
             [CanBeNull] double[] buckets = null)
@@ -77,25 +65,42 @@ namespace csv_prometheus_exporter
                 throw new ArgumentException("Must not provide buckets if type is not histogram", nameof(buckets));
         }
 
+        [NotNull] internal string BaseName { get; }
+        [NotNull] internal string Help { get; }
+        public Type Type { get; }
+        [CanBeNull] internal double[] Buckets { get; }
+
         public string PrefixedName => !string.IsNullOrEmpty(GlobalPrefix) ? $"{GlobalPrefix}:{BaseName}" : BaseName;
 
         private string Header =>
             string.Format("# HELP {0} {1}\n# TYPE {0} {2}", PrefixedName,
                 Help.Replace(@"\", @"\\").Replace("\n", @"\n"), Type.ToString().ToLower());
 
-        public void ExposeTo([NotNull] StreamWriter stream)
+        private static bool IsValidMetricsBasename([NotNull] string name)
+        {
+            return new Regex("^[a-zA-Z0-9:_]+$").IsMatch(name)
+                   && !new[] {"_sum", "_count", "_bucket", "_total"}.Any(name.EndsWith)
+                   && !new[] {"process_", "scrape_"}.Any(name.StartsWith);
+        }
+
+        public void ExposeTo([NotNull] StreamWriter stream, ref int total, ref int discarded)
         {
             stream.WriteLine(Header);
             var eol = DateTime.Now - TimeSpan.FromSeconds(TTL);
             foreach (var ttlM in _metrics.Values)
             {
+                ++total;
                 if (ttlM.LastUpdated < eol)
+                {
+                    ++discarded;
                     continue;
+                }
+
                 ttlM.Metrics.ExposeTo(stream);
             }
         }
 
-        private LocalMetrics CreateMetrics([NotNull] Dictionary<string, string> labels)
+        private LocalMetrics CreateMetrics([NotNull] LabelDict labels)
         {
             switch (Type)
             {
@@ -113,7 +118,7 @@ namespace csv_prometheus_exporter
             }
         }
 
-        public LocalMetrics GetMetrics([NotNull] Dictionary<string, string> labels)
+        public LocalMetrics GetMetrics([NotNull] LabelDict labels)
         {
             var m = !_metrics.TryGetValue(labels, out var ttlM) ? CreateMetrics(labels) : ttlM.Metrics;
 
@@ -124,10 +129,7 @@ namespace csv_prometheus_exporter
         public MetricsMeta FullClone()
         {
             var result = new MetricsMeta(BaseName, Help, Type, Buckets);
-            foreach (var (labels, ttlM) in _metrics)
-            {
-                result._metrics[labels] = ttlM.Clone();
-            }
+            foreach (var (labels, ttlM) in _metrics) result._metrics[labels] = ttlM.Clone();
 
             return result;
         }
@@ -135,7 +137,6 @@ namespace csv_prometheus_exporter
         public void Merge([NotNull] MetricsMeta other)
         {
             foreach (var (labels, ttlM) in other._metrics)
-            {
                 if (_metrics.TryGetValue(labels, out var existing))
                 {
                     existing.Metrics.MergeAll(ttlM.Metrics);
@@ -143,35 +144,35 @@ namespace csv_prometheus_exporter
                         existing.LastUpdated = ttlM.LastUpdated;
                 }
                 else
+                {
                     _metrics[labels] = ttlM.Clone();
-            }
+                }
         }
     }
 
     public abstract class LocalMetrics
     {
-        protected Dictionary<string, string> Labels { get; }
-
-        protected MetricsMeta Meta { get; }
-
-        protected LocalMetrics([NotNull] MetricsMeta meta, [NotNull] Dictionary<string, string> labels)
+        protected LocalMetrics([NotNull] MetricsMeta meta, [NotNull] LabelDict labels)
         {
             Meta = meta;
             Labels = labels;
         }
 
-        protected string QualifiedName([CanBeNull] Dictionary<string, string> otherLabels = null)
+        protected LabelDict Labels { get; }
+
+        protected MetricsMeta Meta { get; }
+
+        protected string QualifiedName([CanBeNull] string le = null)
         {
-            if (otherLabels == null)
-                otherLabels = new Dictionary<string, string>();
-            return $"{Meta.PrefixedName}{{{LabelStr(otherLabels)}}}";
+            return $"{Meta.PrefixedName}{{{LabelStr(le)}}}";
         }
 
-        private string LabelStr([NotNull] Dictionary<string, string> otherLabels)
+        private string LabelStr(string le)
         {
-            return string.Join(",", Labels.AsEnumerable().Concat(otherLabels.AsEnumerable())
-                .OrderBy(_ => _.Key)
-                .Select(_ => $"{_.Key}={Quote(_.Value)}"));
+            var result = string.Join(",", Labels.Labels.Select(_ => $"{_.Key}={Quote(_.Value)}"));
+            if (!string.IsNullOrEmpty(le))
+                result += "le=" + Quote(le);
+            return result;
         }
 
         public abstract void ExposeTo(StreamWriter stream);

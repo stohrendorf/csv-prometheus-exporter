@@ -21,15 +21,15 @@ namespace csv_prometheus_exporter
 {
     public class Startup
     {
+        public static readonly IDictionary<string, SSHLogScraper> Scrapers =
+            new ConcurrentDictionary<string, SSHLogScraper>();
+
         // This method gets called by the runtime. Use this method
         // to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddRouting();
         }
-
-        public static readonly IDictionary<string, SSHLogScraper> Scrapers =
-            new ConcurrentDictionary<string, SSHLogScraper>();
 
         private static Task Collect(HttpContext context)
         {
@@ -40,19 +40,11 @@ namespace csv_prometheus_exporter
                 var aggregated = new Dictionary<string, MetricsMeta>();
 
                 foreach (var scraper in Scrapers.Values)
-                {
-                    foreach (var (metricName, metricData) in scraper.Metrics)
-                    {
-                        if (!aggregated.TryGetValue(metricName, out var existing))
-                        {
-                            aggregated[metricName] = metricData.FullClone();
-                        }
-                        else
-                        {
-                            existing.Merge(metricData);
-                        }
-                    }
-                }
+                foreach (var (metricName, metricData) in scraper.Metrics)
+                    if (!aggregated.TryGetValue(metricName, out var existing))
+                        aggregated[metricName] = metricData.FullClone();
+                    else
+                        existing.Merge(metricData);
 
                 return aggregated;
             });
@@ -60,16 +52,15 @@ namespace csv_prometheus_exporter
             return aggregation.ContinueWith(
                 _ =>
                 {
-                    using (var textStream = new StreamWriter(context.Response.Body, Encoding.UTF8, 8<<20))
+                    using (var textStream = new StreamWriter(context.Response.Body, Encoding.UTF8, 8 << 20))
                     {
+                        int total = 0, discarded = 0;
                         foreach (var aggregatedMetric in _.Result.Values)
-                        {
-                            aggregatedMetric.ExposeTo(textStream);
-                        }
+                            aggregatedMetric.ExposeTo(textStream, ref total, ref discarded);
+                        Console.WriteLine("Result: total {0}, discarded {1}", total, discarded);
                     }
                 }
             );
-
         }
 
         // This method gets called by the runtime. Use this method
@@ -114,10 +105,7 @@ namespace csv_prometheus_exporter
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
-            foreach (var arg in split.Skip(1))
-            {
-                startInfo.ArgumentList.Add(arg);
-            }
+            foreach (var arg in split.Skip(1)) startInfo.ArgumentList.Add(arg);
 
             var process = new Process {StartInfo = startInfo};
             process.Start();
@@ -214,14 +202,10 @@ namespace csv_prometheus_exporter
                 }
 
                 if (tp == "label" && name == "environment")
-                {
                     throw new Exception("'environment' is a reserved label name");
-                }
 
                 if (tp != "label" && (name == "parser_errors" || name == "lines_parsed" || name == "in_bytes"))
-                {
                     throw new Exception($"'{name}' is a reserved metric name");
-                }
 
                 if (tp.Contains('+'))
                 {
@@ -267,12 +251,8 @@ namespace csv_prometheus_exporter
             var loadedIds = LoadSshScrapersConfig(threads, scrapeConfig.Map("ssh") ?? new YamlMappingNode(), readers,
                 metrics);
             foreach (var (threadId, thread) in threads)
-            {
                 if (!loadedIds.Contains(threadId))
-                {
                     thread.Abort();
-                }
-            }
         }
 
         private static void Main(string[] args)

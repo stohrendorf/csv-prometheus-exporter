@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -8,13 +7,12 @@ namespace csv_prometheus_exporter.MetricsImpl
 {
     public sealed class LocalSummary : LocalMetrics
     {
-        private double _sum;
-        private ulong _count;
-        private readonly string _sumName;
         private readonly string _countName;
+        private readonly string _sumName;
+        private ulong _count;
+        private double _sum;
 
-        public LocalSummary([NotNull] MetricsMeta meta, [NotNull] Dictionary<string, string> labels) : base(meta,
-            labels)
+        public LocalSummary([NotNull] MetricsMeta meta, [NotNull] LabelDict labels) : base(meta, labels)
         {
             Debug.Assert(meta.Type == Type.Gauge);
             var name = QualifiedName();
