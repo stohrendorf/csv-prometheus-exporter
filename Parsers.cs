@@ -6,10 +6,12 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Sockets;
+using System.Text;
 using System.Threading;
 using csv_prometheus_exporter.MetricsImpl;
-using CsvHelper;
+using CsvParser;
 using JetBrains.Annotations;
+using NLog;
 using Renci.SshNet;
 using Renci.SshNet.Common;
 
@@ -83,18 +85,20 @@ namespace csv_prometheus_exporter
 
     public class LogParser
     {
+        private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
+
         private readonly LabelDict _labels;
         private readonly IList<Reader> _readers;
-        private readonly StreamReader _stream;
+        private readonly Stream _stream;
 
-        private LogParser(StreamReader stream, IList<Reader> readers, string environment)
+        private LogParser(Stream stream, IList<Reader> readers, string environment)
         {
             _stream = stream;
             _readers = readers;
             _labels = new LabelDict(environment);
         }
 
-        private ParsedMetrics ConvertCsvLine(ICollection<string> line, LabelDict labels)
+        private ParsedMetrics ConvertCsvLine(ICsvReaderRow line, LabelDict labels)
         {
             if (_readers.Count != line.Count) throw new ParserError();
 
@@ -107,31 +111,37 @@ namespace csv_prometheus_exporter
 
         private IEnumerable<ParsedMetrics> ReadAll()
         {
-            var parser = new CsvParser(_stream);
-            parser.Configuration.BadDataFound =
-                context => Console.WriteLine("Failed to parse CSV: {0}", context.RawRecord);
-            parser.Configuration.Delimiter = " ";
-            parser.Configuration.Quote = '"';
-            parser.Configuration.IgnoreBlankLines = true;
-            while (_stream.BaseStream.CanRead)
+            using (var parser = new CsvReader(_stream, Encoding.UTF8,
+                new CsvReader.Config() {Quotes = '"', ColumnSeparator = ' '}))
             {
-                ParsedMetrics result = null;
-                try
+                parser.Reset();
+                while (_stream.CanRead)
                 {
-                    result = ConvertCsvLine(parser.Read(), _labels);
-                }
-                catch
-                {
-                    // ignored
-                }
+                    ParsedMetrics result = null;
+                    try
+                    {
+                        if (parser.MoveNext())
+                        {
+                            result = ConvertCsvLine(parser.Current, _labels);
+                        }
+                        else
+                        {
+                            parser.Reset();
+                        }
+                    }
+                    catch
+                    {
+                        // ignored
+                    }
 
-                yield return result;
+                    yield return result;
+                }
             }
 
-            Console.WriteLine("End of stream");
+            Logger.Info("End of stream");
         }
 
-        public static void ParseFile(StreamReader stdout, string environment, IList<Reader> readers,
+        public static void ParseFile(Stream stdout, string environment, IList<Reader> readers,
             IDictionary<string, MetricsMeta> metrics)
         {
             if (string.IsNullOrEmpty(environment))
@@ -158,6 +168,8 @@ namespace csv_prometheus_exporter
 
     public sealed class SSHLogScraper
     {
+        private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
+
         private readonly string _environment;
         private readonly string _filename;
         private readonly string _host;
@@ -207,7 +219,7 @@ namespace csv_prometheus_exporter
 
         public void Run()
         {
-            Console.WriteLine("Scraper thread for {0} on {1} became alive", _filename, _host);
+            Logger.Info($"Scraper thread for {_filename} on {_host} became alive");
             var envHostDict = new LabelDict(_environment);
             envHostDict.Set("host", _host);
             var connected = Metrics["connected"].GetMetrics(envHostDict) as LocalGauge;
@@ -217,47 +229,44 @@ namespace csv_prometheus_exporter
                 connected.Set(0);
                 try
                 {
-                    Console.WriteLine("Trying to establish connection to {0}", _host);
+                    Logger.Info($"Trying to establish connection to {_host}");
                     using (var client = CreateClient())
                     {
                         client.Connect();
                         connected.Set(1);
-                        Console.WriteLine("Starting tailing {0} on {1}", _filename, _host);
+                        Logger.Info($"Starting tailing {_filename} on {_host}");
                         var cmd = client.CreateCommand($"tail -n0 -F \"{_filename}\" 2>/dev/null");
                         var tmp = cmd.BeginExecute();
-                        using (var reader = new StreamReader(cmd.OutputStream))
-                        {
-                            LogParser.ParseFile(reader, _environment, _readers, Metrics);
-                        }
+                        LogParser.ParseFile(cmd.OutputStream, _environment, _readers, Metrics);
 
                         cmd.EndExecute(tmp);
                         if (cmd.ExitStatus != 0)
-                            Console.WriteLine("Tail command failed with exit code {0} on {1}", cmd.ExitStatus, _host);
+                            Logger.Warn($"Tail command failed with exit code {cmd.ExitStatus} on {_host}");
                     }
                 }
                 catch (SshOperationTimeoutException ex)
                 {
-                    Console.WriteLine("Timeout on {0}: {1}", _host, ex.Message);
+                    Logger.Error($"Timeout on {_host}: {ex.Message}");
                 }
                 catch (SshConnectionException ex)
                 {
-                    Console.WriteLine("Failed to connect to {0}: {1}", _host, ex.Message);
+                    Logger.Error($"Failed to connect to {_host}: {ex.Message}");
                 }
                 catch (SshAuthenticationException ex)
                 {
-                    Console.WriteLine("Failed to authenticate for {0}: {1}", _host, ex.Message);
+                    Logger.Error($"Failed to authenticate for {_host}: {ex.Message}");
                 }
                 catch (SocketException ex)
                 {
-                    Console.WriteLine("Error on socket for {0} (check firewall?): {1}", _host, ex.Message);
+                    Logger.Error($"Error on socket for {_host} (check firewall?): {ex.Message}");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine("Unhandled exception on {0}: {1}", _host, ex);
+                    Logger.Fatal(ex, $"Unhandled exception on {_host}");
                 }
 
                 connected.Set(0);
-                Console.WriteLine("Will retry connecting to {0} in 30 seconds", _host);
+                Logger.Info($"Will retry connecting to {_host} in 30 seconds");
                 Thread.Sleep(TimeSpan.FromSeconds(30));
             }
 
