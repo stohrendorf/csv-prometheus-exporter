@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -19,7 +20,7 @@ namespace csv_prometheus_exporter.MetricsImpl
         private LocalCounter(LocalCounter self) : base(self.Meta, self.Labels)
         {
             _value = self._value;
-            _name = self._name;
+            _name = ExtendBaseName(self._name, "_total");
         }
 
         public override void ExposeTo(StreamWriter stream)

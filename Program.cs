@@ -52,7 +52,7 @@ namespace csv_prometheus_exporter
             return aggregation.ContinueWith(
                 _ =>
                 {
-                    using (var textStream = new StreamWriter(context.Response.Body, Encoding.UTF8, 8 << 20))
+                    using (var textStream = new StreamWriter(context.Response.Body))
                     {
                         int total = 0, discarded = 0;
                         foreach (var aggregatedMetric in _.Result.Values)
