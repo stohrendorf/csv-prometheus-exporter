@@ -85,11 +85,11 @@ namespace csv_prometheus_exporter
         private readonly IList<Reader> _readers;
         private readonly StreamReader _stream;
 
-        private LogParser(StreamReader stream, IList<Reader> readers, LabelDict labels)
+        private LogParser(StreamReader stream, IList<Reader> readers, string environment)
         {
             _stream = stream;
             _readers = readers;
-            _labels = new LabelDict(labels);
+            _labels = new LabelDict(environment);
         }
 
         private ParsedMetrics ConvertCsvLine(ICollection<string> line, LabelDict labels)
@@ -135,10 +135,9 @@ namespace csv_prometheus_exporter
             if (string.IsNullOrEmpty(environment))
                 environment = "N/A";
 
-            var envDict = new LabelDict();
-            envDict.Set("environment", environment);
+            var envDict = new LabelDict(environment);
 
-            foreach (var entry in new LogParser(stdout, readers, envDict).ReadAll())
+            foreach (var entry in new LogParser(stdout, readers, environment).ReadAll())
             {
                 if (entry == null)
                 {

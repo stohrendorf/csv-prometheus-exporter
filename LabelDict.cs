@@ -5,15 +5,18 @@ namespace csv_prometheus_exporter
 {
     public sealed class LabelDict
     {
+        public readonly string Environment;
         public readonly IList<KeyValuePair<string, string>> Labels = new List<KeyValuePair<string, string>>();
 
         public LabelDict([NotNull] LabelDict other)
         {
+            Environment = other.Environment;
             Labels = new List<KeyValuePair<string, string>>(other.Labels);
         }
 
-        public LabelDict()
+        public LabelDict([NotNull] string environment)
         {
+            Environment = environment;
         }
 
         public void Set(string key, string value)
@@ -40,6 +43,9 @@ namespace csv_prometheus_exporter
 
         private bool Equals(LabelDict other)
         {
+            if (Environment != other.Environment)
+                return false;
+            
             if (Labels.Count != other.Labels.Count)
                 return false;
 
@@ -59,8 +65,9 @@ namespace csv_prometheus_exporter
 
         public override int GetHashCode()
         {
-            var result = 0;
-            foreach (var (key, value) in Labels) result = result * 31 + key.GetHashCode() * 17 + value.GetHashCode();
+            var result = Environment.GetHashCode();
+            foreach (var (key, value) in Labels)
+                result = result * 31 + key.GetHashCode() * 17 + value.GetHashCode();
 
             return result;
         }

@@ -20,20 +20,20 @@ namespace csv_prometheus_exporter
         Summary
     }
 
-    public sealed class MetricsTTL
+    public sealed class MetricUpdateTracker
     {
-        public readonly LocalMetrics Metrics;
+        public readonly LocalMetrics Metric;
         public DateTime LastUpdated;
 
-        public MetricsTTL([NotNull] LocalMetrics metrics, DateTime? lastUpdated = null)
+        public MetricUpdateTracker([NotNull] LocalMetrics metric, DateTime? lastUpdated = null)
         {
             LastUpdated = lastUpdated ?? DateTime.Now;
-            Metrics = metrics;
+            Metric = metric;
         }
 
-        public MetricsTTL Clone()
+        public MetricUpdateTracker DeepClone()
         {
-            return new MetricsTTL(Metrics.Clone(), LastUpdated);
+            return new MetricUpdateTracker(Metric.Clone(), LastUpdated);
         }
     }
 
@@ -42,8 +42,8 @@ namespace csv_prometheus_exporter
         public static string GlobalPrefix = null;
         public static int TTL = 60;
 
-        [NotNull] private readonly IDictionary<LabelDict, MetricsTTL> _metrics =
-            new ConcurrentDictionary<LabelDict, MetricsTTL>();
+        [NotNull] private readonly IDictionary<LabelDict, MetricUpdateTracker> _metrics =
+            new ConcurrentDictionary<LabelDict, MetricUpdateTracker>();
 
         public MetricsMeta([NotNull] string baseName, [NotNull] string help, Type type,
             [CanBeNull] double[] buckets = null)
@@ -83,20 +83,12 @@ namespace csv_prometheus_exporter
                    && !new[] {"process_", "scrape_"}.Any(name.StartsWith);
         }
 
-        public void ExposeTo([NotNull] StreamWriter stream, ref int total, ref int discarded)
+        public void ExposeTo([NotNull] StreamWriter stream)
         {
             stream.WriteLine(Header);
-            var eol = DateTime.Now - TimeSpan.FromSeconds(TTL);
             foreach (var ttlM in _metrics.Values)
             {
-                ++total;
-                if (ttlM.LastUpdated < eol)
-                {
-                    ++discarded;
-                    continue;
-                }
-
-                ttlM.Metrics.ExposeTo(stream);
+                ttlM.Metric.ExposeTo(stream);
             }
         }
 
@@ -120,33 +112,47 @@ namespace csv_prometheus_exporter
 
         public LocalMetrics GetMetrics([NotNull] LabelDict labels)
         {
-            var m = !_metrics.TryGetValue(labels, out var ttlM) ? CreateMetrics(labels) : ttlM.Metrics;
+            var m = !_metrics.TryGetValue(labels, out var ttlM) ? CreateMetrics(labels) : ttlM.Metric;
 
-            _metrics[labels] = new MetricsTTL(m);
+            _metrics[labels] = new MetricUpdateTracker(m);
             return m;
         }
 
-        public MetricsMeta FullClone()
+        public MetricsMeta DeepClone(ISet<LabelDict> filter)
         {
             var result = new MetricsMeta(BaseName, Help, Type, Buckets);
-            foreach (var (labels, ttlM) in _metrics) result._metrics[labels] = ttlM.Clone();
+            foreach (var (labels, ttlM) in _metrics)
+                if (filter.Contains(labels))
+                    result._metrics[labels] = ttlM.DeepClone();
 
             return result;
         }
 
-        public void Merge([NotNull] MetricsMeta other)
+        public void GetLatestTTL(IDictionary<LabelDict, DateTime> ttls)
+        {
+            foreach (var (labels, ttlM) in _metrics)
+                if (!ttls.TryGetValue(labels, out var existing) || existing < ttlM.LastUpdated)
+                {
+                    ttls[labels] = ttlM.LastUpdated;
+                }
+        }
+
+        public void Add([NotNull] MetricsMeta other, ISet<LabelDict> filter)
         {
             foreach (var (labels, ttlM) in other._metrics)
+            {
+                if (!filter.Contains(labels))
+                    continue;
+
                 if (_metrics.TryGetValue(labels, out var existing))
                 {
-                    existing.Metrics.MergeAll(ttlM.Metrics);
-                    if (existing.LastUpdated < ttlM.LastUpdated)
-                        existing.LastUpdated = ttlM.LastUpdated;
+                    existing.Metric.Add(ttlM.Metric);
                 }
                 else
                 {
-                    _metrics[labels] = ttlM.Clone();
+                    _metrics[labels] = ttlM.DeepClone();
                 }
+            }
         }
     }
 
@@ -179,7 +185,7 @@ namespace csv_prometheus_exporter
 
         public abstract void Add(double value);
 
-        public abstract void MergeAll([NotNull] LocalMetrics other);
+        public abstract void Add([NotNull] LocalMetrics other);
 
         private static string Quote([NotNull] string s)
         {

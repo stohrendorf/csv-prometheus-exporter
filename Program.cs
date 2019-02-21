@@ -33,32 +33,82 @@ namespace csv_prometheus_exporter
 
         private static Task Collect(HttpContext context)
         {
-            context.Response.Headers["Content-type"] = "text/plain; version=0.0.4; charset=utf-8";
-
-            var aggregation = Task.Run(() =>
+            return Task.Factory.StartNew(() =>
             {
+                var stopWatch = new Stopwatch();
+                stopWatch.Start();
+                // gather last update times
+                var ttlsByName = new Dictionary<string, Dictionary<LabelDict, DateTime>>();
+                foreach (var scraper in Scrapers.Values.ToList())
+                foreach (var (metricName, metricData) in scraper.Metrics.ToList())
+                {
+                    if (!ttlsByName.TryGetValue(metricName, out var ttls))
+                        ttls = ttlsByName[metricName] = new Dictionary<LabelDict, DateTime>();
+                    metricData.GetLatestTTL(ttls);
+                }
+
+                stopWatch.Stop();
+                Console.WriteLine("Gather metrics update times: {0}", stopWatch.Elapsed);
+                return ttlsByName;
+            }).ContinueWith(ttlsByName =>
+            {
+                var stopWatch = new Stopwatch();
+                stopWatch.Start();
+                // filter out stale metrics
+                var eol = DateTime.Now - TimeSpan.FromSeconds(MetricsMeta.TTL);
+                var livingMetrics = new Dictionary<string, ISet<LabelDict>>();
+                foreach (var (metricName, ttls) in ttlsByName.Result)
+                {
+                    foreach (var (labels, ttl) in ttls)
+                    {
+                        if (ttl < eol)
+                            continue;
+
+                        if (!livingMetrics.TryGetValue(metricName, out var set))
+                            set = livingMetrics[metricName] = new HashSet<LabelDict>();
+                        set.Add(labels);
+                    }
+                }
+
+                stopWatch.Stop();
+                Console.WriteLine("Filter stale metrics: {0}", stopWatch.Elapsed);
+                return livingMetrics;
+            }).ContinueWith(livingMetrics =>
+            {
+                var stopWatch = new Stopwatch();
+                stopWatch.Start();
+                // aggregate all non-stale metrics
                 var aggregated = new Dictionary<string, MetricsMeta>();
 
                 foreach (var scraper in Scrapers.Values)
                 foreach (var (metricName, metricData) in scraper.Metrics)
-                    if (!aggregated.TryGetValue(metricName, out var existing))
-                        aggregated[metricName] = metricData.FullClone();
-                    else
-                        existing.Merge(metricData);
-
-                return aggregated;
-            });
-
-            return aggregation.ContinueWith(
-                _ =>
                 {
+                    if (!livingMetrics.Result.TryGetValue(metricName, out var labelFilter))
+                        continue;
+
+                    if (!aggregated.TryGetValue(metricName, out var existing))
+                        aggregated[metricName] = metricData.DeepClone(labelFilter);
+                    else
+                        existing.Add(metricData, labelFilter);
+                }
+
+                stopWatch.Stop();
+                Console.WriteLine("Aggregate active metrics: {0}", stopWatch.Elapsed);
+                return aggregated;
+            }).ContinueWith(
+                aggregated =>
+                {
+                    var stopWatch = new Stopwatch();
+                    stopWatch.Start();
+                    // write the results
+                    context.Response.Headers["Content-type"] = "text/plain; version=0.0.4; charset=utf-8";
                     using (var textStream = new StreamWriter(context.Response.Body))
                     {
-                        int total = 0, discarded = 0;
-                        foreach (var aggregatedMetric in _.Result.Values)
-                            aggregatedMetric.ExposeTo(textStream, ref total, ref discarded);
-                        Console.WriteLine("Result: total {0}, discarded {1}", total, discarded);
+                        foreach (var aggregatedMetric in aggregated.Result.Values)
+                            aggregatedMetric.ExposeTo(textStream);
                     }
+                    stopWatch.Stop();
+                    Console.WriteLine("Write active metrics to response stream: {0}", stopWatch.Elapsed);
                 }
             );
         }

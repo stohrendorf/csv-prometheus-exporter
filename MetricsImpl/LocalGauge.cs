@@ -33,7 +33,7 @@ namespace csv_prometheus_exporter.MetricsImpl
             _value += value;
         }
 
-        public override void MergeAll(LocalMetrics other)
+        public override void Add(LocalMetrics other)
         {
 #if DEBUG
             if (!(other is LocalGauge o))

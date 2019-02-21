@@ -41,7 +41,7 @@ namespace csv_prometheus_exporter.MetricsImpl
             ++_count;
         }
 
-        public override void MergeAll(LocalMetrics other)
+        public override void Add(LocalMetrics other)
         {
 #if DEBUG
             if (!(other is LocalSummary o))

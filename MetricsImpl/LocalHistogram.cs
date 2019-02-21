@@ -71,7 +71,7 @@ namespace csv_prometheus_exporter.MetricsImpl
                 }
         }
 
-        public override void MergeAll(LocalMetrics other)
+        public override void Add(LocalMetrics other)
         {
 #if DEBUG
             if (!(other is LocalHistogram o))
