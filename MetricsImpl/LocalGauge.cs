@@ -33,6 +33,11 @@ namespace csv_prometheus_exporter.MetricsImpl
             _value += value;
         }
 
+        public void Set(double value)
+        {
+            _value = value;
+        }
+
         public override void Add(LocalMetrics other)
         {
 #if DEBUG

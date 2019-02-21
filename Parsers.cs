@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
+using csv_prometheus_exporter.MetricsImpl;
 using CsvHelper;
 using JetBrains.Annotations;
 using Renci.SshNet;
@@ -183,6 +185,8 @@ namespace csv_prometheus_exporter
                 new MetricsMeta("parser_errors", "Number of lines which could not be parsed", Type.Counter);
             Metrics["lines_parsed"] =
                 new MetricsMeta("lines_parsed", "Number of successfully parsed lines", Type.Counter);
+            Metrics["connected"] =
+                new MetricsMeta("connected", "Whether this target is currently being scraped", Type.Gauge);
         }
 
         private SshClient CreateClient()
@@ -204,14 +208,20 @@ namespace csv_prometheus_exporter
         public void Run()
         {
             Console.WriteLine("Scraper thread for {0} on {1} became alive", _filename, _host);
+            var envHostDict = new LabelDict(_environment);
+            envHostDict.Set("host", _host);
+            var connected = Metrics["connected"].GetMetrics(envHostDict) as LocalGauge;
+            Debug.Assert(connected != null);
             while (true)
             {
+                connected.Set(0);
                 try
                 {
                     Console.WriteLine("Trying to establish connection to {0}", _host);
                     using (var client = CreateClient())
                     {
                         client.Connect();
+                        connected.Set(1);
                         Console.WriteLine("Starting tailing {0} on {1}", _filename, _host);
                         var cmd = client.CreateCommand($"tail -n0 -F \"{_filename}\" 2>/dev/null");
                         var tmp = cmd.BeginExecute();
@@ -246,6 +256,7 @@ namespace csv_prometheus_exporter
                     Console.WriteLine("Unhandled exception on {0}: {1}", _host, ex);
                 }
 
+                connected.Set(0);
                 Console.WriteLine("Will retry connecting to {0} in 30 seconds", _host);
                 Thread.Sleep(TimeSpan.FromSeconds(30));
             }

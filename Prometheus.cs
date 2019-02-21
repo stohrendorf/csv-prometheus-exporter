@@ -92,6 +92,8 @@ namespace csv_prometheus_exporter
             }
         }
 
+        public int Count => _metrics.Count;
+
         private LocalMetrics CreateMetrics([NotNull] LabelDict labels)
         {
             switch (Type)

@@ -106,7 +106,32 @@ namespace csv_prometheus_exporter
                     {
                         foreach (var aggregatedMetric in aggregated.Result.Values)
                             aggregatedMetric.ExposeTo(textStream);
+
+                        var process = Process.GetCurrentProcess();
+
+                        var meta = new MetricsMeta("process_cpu_seconds", "Process CPU seconds", Type.Counter);
+                        var metric = meta.GetMetrics(new LabelDict(Environment.MachineName));
+                        metric.Add(process.TotalProcessorTime.TotalSeconds);
+                        meta.ExposeTo(textStream);
+
+                        meta = new MetricsMeta("process_resident_memory_bytes", "Process RSS", Type.Gauge);
+                        metric = meta.GetMetrics(new LabelDict(Environment.MachineName));
+                        metric.Add(process.WorkingSet64);
+                        meta.ExposeTo(textStream);
+
+                        meta = new MetricsMeta("process_start_time_seconds", "Process Start Time (Unix epoch)",
+                            Type.Counter);
+                        metric = meta.GetMetrics(new LabelDict(Environment.MachineName));
+                        metric.Add(((DateTimeOffset) process.StartTime).ToUnixTimeSeconds());
+                        meta.ExposeTo(textStream);
+
+                        meta = new MetricsMeta("scraper_active_metrics", "Currently exposed (active) metrics",
+                            Type.Gauge);
+                        metric = meta.GetMetrics(new LabelDict(Environment.MachineName));
+                        metric.Add(aggregated.Result.Sum(_ => _.Value.Count));
+                        metric.ExposeTo(textStream);
                     }
+
                     stopWatch.Stop();
                     Console.WriteLine("Write active metrics to response stream: {0}", stopWatch.Elapsed);
                 }
