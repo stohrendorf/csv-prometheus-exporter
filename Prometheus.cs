@@ -1,11 +1,13 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
+using csv_prometheus_exporter.MetricsImpl;
 using JetBrains.Annotations;
 
 namespace csv_prometheus_exporter
@@ -18,15 +20,20 @@ namespace csv_prometheus_exporter
         Summary
     }
 
-
-    public class MetricsTTL
+    public sealed class MetricsTTL
     {
-        public DateTime LastUpdated = DateTime.Now;
+        public DateTime LastUpdated;
         public readonly LocalMetrics Metrics;
 
-        public MetricsTTL([NotNull] LocalMetrics metrics)
+        public MetricsTTL([NotNull] LocalMetrics metrics, DateTime? lastUpdated = null)
         {
+            LastUpdated = lastUpdated ?? DateTime.Now;
             Metrics = metrics;
+        }
+
+        public MetricsTTL Clone()
+        {
+            return new MetricsTTL(Metrics.Clone(), LastUpdated);
         }
     }
 
@@ -35,13 +42,13 @@ namespace csv_prometheus_exporter
         public static string GlobalPrefix = null;
         public static int TTL = 60;
 
-        [NotNull] private string BaseName { get; }
-        [NotNull] private string Help { get; }
+        [NotNull] internal string BaseName { get; }
+        [NotNull] internal string Help { get; }
         public Type Type { get; }
-        [CanBeNull] private double[] Buckets { get; }
+        [CanBeNull] internal double[] Buckets { get; }
 
         [NotNull] private readonly IDictionary<SortedDictionary<string, string>, MetricsTTL> _metrics =
-            new Dictionary<SortedDictionary<string, string>, MetricsTTL>();
+            new ConcurrentDictionary<SortedDictionary<string, string>, MetricsTTL>();
 
         private static bool IsValidMetricsBasename([NotNull] string name)
         {
@@ -70,27 +77,22 @@ namespace csv_prometheus_exporter
                 throw new ArgumentException("Must not provide buckets if type is not histogram", nameof(buckets));
         }
 
-        public MetricsMeta Clone()
-        {
-            return new MetricsMeta(BaseName, Help, Type, Buckets);
-        }
-
         public string PrefixedName => !string.IsNullOrEmpty(GlobalPrefix) ? $"{GlobalPrefix}:{BaseName}" : BaseName;
 
         private string Header =>
             string.Format("# HELP {0} {1}\n# TYPE {0} {2}", PrefixedName,
                 Help.Replace(@"\", @"\\").Replace("\n", @"\n"), Type.ToString().ToLower());
 
-        public void ExposeTo([NotNull] StringBuilder stringBuilder)
+        public void ExposeTo([NotNull] StreamWriter stream)
         {
-            stringBuilder.Append(Header).Append('\n');
-            var now = DateTime.Now;
+            stream.WriteLine(Header);
+            var eol = DateTime.Now - TimeSpan.FromSeconds(TTL);
             foreach (var ttlM in _metrics.Values)
             {
-                if (ttlM.LastUpdated + TimeSpan.FromSeconds(TTL) < now)
+                if (ttlM.LastUpdated < eol)
                     continue;
-                ttlM.Metrics.ExposeTo(stringBuilder);
-                stringBuilder.Append('\n');
+                ttlM.Metrics.ExposeTo(stream);
+                stream.WriteLine();
             }
         }
 
@@ -114,24 +116,18 @@ namespace csv_prometheus_exporter
 
         public LocalMetrics GetMetrics([NotNull] SortedDictionary<string, string> labels)
         {
-            lock (_metrics)
-            {
-                var m = !_metrics.TryGetValue(labels, out var ttlM) ? CreateMetrics(labels) : ttlM.Metrics;
+            var m = !_metrics.TryGetValue(labels, out var ttlM) ? CreateMetrics(labels) : ttlM.Metrics;
 
-                _metrics[labels] = new MetricsTTL(m);
-                return m;
-            }
+            _metrics[labels] = new MetricsTTL(m);
+            return m;
         }
 
         public MetricsMeta FullClone()
         {
-            var result = Clone();
-            lock (_metrics)
+            var result = new MetricsMeta(BaseName, Help, Type, Buckets);
+            foreach (var (labels, ttlM) in _metrics)
             {
-                foreach (var (labels, ttlM) in _metrics)
-                {
-                    result._metrics[labels] = ttlM;
-                }
+                result._metrics[labels] = ttlM.Clone();
             }
 
             return result;
@@ -139,28 +135,25 @@ namespace csv_prometheus_exporter
 
         public void Merge([NotNull] MetricsMeta other)
         {
-            lock (other._metrics)
+            foreach (var (labels, ttlM) in other._metrics)
             {
-                foreach (var (labels, ttlM) in other._metrics)
+                if (_metrics.TryGetValue(labels, out var existing))
                 {
-                    if (_metrics.TryGetValue(labels, out var existing))
-                    {
-                        existing.Metrics.MergeAll(ttlM.Metrics);
-                        if (existing.LastUpdated < ttlM.LastUpdated)
-                            existing.LastUpdated = ttlM.LastUpdated;
-                    }
-                    else
-                        _metrics[labels] = ttlM;
+                    existing.Metrics.MergeAll(ttlM.Metrics);
+                    if (existing.LastUpdated < ttlM.LastUpdated)
+                        existing.LastUpdated = ttlM.LastUpdated;
                 }
+                else
+                    _metrics[labels] = ttlM.Clone();
             }
         }
     }
 
     public abstract class LocalMetrics
     {
-        private SortedDictionary<string, string> Labels { get; }
+        protected SortedDictionary<string, string> Labels { get; }
 
-        private MetricsMeta Meta { get; }
+        protected MetricsMeta Meta { get; }
 
         protected LocalMetrics([NotNull] MetricsMeta meta, [NotNull] SortedDictionary<string, string> labels)
         {
@@ -188,7 +181,7 @@ namespace csv_prometheus_exporter
                 .Select(_ => $"{_.Key}={Quote(_.Value)}"));
         }
 
-        public abstract void ExposeTo(StringBuilder stringBuilder);
+        public abstract void ExposeTo(StreamWriter stream);
 
         public abstract void Add(double value);
 
@@ -199,194 +192,27 @@ namespace csv_prometheus_exporter
             return $"\"{s.Replace(@"\", @"\\").Replace("\n", @"\n").Replace("\"", "\\\"")}\"";
         }
 
+        public abstract LocalMetrics Clone();
+
         [SuppressMessage("ReSharper", "CompareOfFloatsByEqualityOperator")]
         protected static string ToGoString(double d)
         {
-            if (d == double.PositiveInfinity)
-                return "+Inf";
-            if (d == double.NegativeInfinity)
-                return "-Inf";
-            if (d == double.NaN)
-                return "NaN";
-
-            return d.ToString(CultureInfo.InvariantCulture);
+            switch (d)
+            {
+                case double.PositiveInfinity:
+                    return "+Inf";
+                case double.NegativeInfinity:
+                    return "-Inf";
+                case double.NaN:
+                    return "NaN";
+                default:
+                    return d.ToString(CultureInfo.InvariantCulture);
+            }
         }
 
         protected static string ExtendBaseName(string name, string suffix)
         {
             return new Regex(@"\{").Replace(name, suffix + "{", 1);
-        }
-    }
-
-    public sealed class LocalCounter : LocalMetrics
-    {
-        private double _value;
-        private readonly string _name;
-
-        public LocalCounter([NotNull] MetricsMeta meta, [NotNull] SortedDictionary<string, string> labels) : base(meta,
-            labels)
-        {
-            Debug.Assert(meta.Type == Type.Counter);
-            _name = QualifiedName();
-        }
-
-        public override void ExposeTo(StringBuilder stringBuilder)
-        {
-            stringBuilder.Append(_name).Append(' ').Append(_value);
-        }
-
-        public override void Add(double value)
-        {
-            Debug.Assert(value >= 0);
-            _value += value;
-        }
-
-        public override void MergeAll(LocalMetrics other)
-        {
-            if (!(other is LocalCounter o))
-                throw new ArgumentException("Incompatible type", nameof(other));
-
-            _value += o._value;
-        }
-    }
-
-    public sealed class LocalGauge : LocalMetrics
-    {
-        private double _value;
-        private readonly string _name;
-
-        public LocalGauge([NotNull] MetricsMeta meta, [NotNull] SortedDictionary<string, string> labels) : base(meta,
-            labels)
-        {
-            Debug.Assert(meta.Type == Type.Gauge);
-            _name = QualifiedName();
-        }
-
-        public override void ExposeTo(StringBuilder stringBuilder)
-        {
-            stringBuilder.Append(_name).Append(' ').Append(_value);
-        }
-
-        public override void Add(double value)
-        {
-            _value += value;
-        }
-
-        public override void MergeAll(LocalMetrics other)
-        {
-            if (!(other is LocalGauge o))
-                throw new ArgumentException("Incompatible type", nameof(other));
-
-            _value += o._value;
-        }
-    }
-
-    public sealed class LocalHistogram : LocalMetrics
-    {
-        public static readonly double[] DefaultBuckets =
-            {.005, .01, .025, .05, .075, .1, .25, .5, .75, 1.0, 2.5, 5.0, 7.5, 10.0, double.PositiveInfinity};
-
-        private readonly double[] _buckets;
-        private readonly ulong[] _counts;
-        private ulong _observations;
-        private double _sum;
-        private readonly string _bucketName;
-        private readonly string _sumName;
-        private readonly string _countName;
-
-        public LocalHistogram([NotNull] MetricsMeta meta, [NotNull] SortedDictionary<string, string> labels,
-            [NotNull] double[] buckets) : base(meta, labels)
-        {
-            Debug.Assert(meta.Type == Type.Histogram);
-            _buckets = buckets.OrderBy(_ => _).ToArray();
-            if (_buckets.Length == 0)
-                _buckets = DefaultBuckets;
-            else if (!double.IsPositiveInfinity(_buckets.Last()))
-                _buckets = _buckets.AsEnumerable().Concat(new[] {double.PositiveInfinity}).ToArray();
-
-            if (_buckets.Length < 2)
-                throw new ArgumentException("Must at least provide one bucket", nameof(buckets));
-
-            _counts = Enumerable.Range(0, _buckets.Length).Select(_ => 0UL).ToArray();
-            _bucketName = QualifiedName(new SortedDictionary<string, string> {["le"] = "$$$$$"});
-            var name = QualifiedName();
-            _sumName = ExtendBaseName(name, "_sum");
-            _countName = ExtendBaseName(name, "_count");
-        }
-
-        public override void ExposeTo(StringBuilder stringBuilder)
-        {
-            for (int i = 0; i < _buckets.Length; ++i)
-            {
-                stringBuilder.Append(_bucketName.Replace("$$$$$", ToGoString(_buckets[i])))
-                    .Append(' ').Append(_counts[i]).Append('\n');
-            }
-
-            stringBuilder.Append(_countName).Append(' ').Append(_observations).Append('\n')
-                .Append(_sumName).Append(' ').Append(_sum);
-        }
-
-        public override void Add(double value)
-        {
-            ++_observations;
-            _sum += value;
-            for (int i = 0; i < _buckets.Length; ++i)
-            {
-                if (value <= _buckets[i])
-                {
-                    ++_counts[i];
-                    break;
-                }
-            }
-        }
-
-        public override void MergeAll(LocalMetrics other)
-        {
-            if (!(other is LocalHistogram o))
-                throw new ArgumentException("Incompatible type", nameof(other));
-
-            _observations += o._observations;
-            _sum += o._sum;
-            for (int i = 0; i < _counts.Length; ++i)
-                _counts[i] += o._counts[i];
-        }
-    }
-
-    public sealed class LocalSummary : LocalMetrics
-    {
-        private double _sum;
-        private ulong _count;
-        private readonly string _sumName;
-        private readonly string _countName;
-
-        public LocalSummary([NotNull] MetricsMeta meta, [NotNull] SortedDictionary<string, string> labels) : base(meta,
-            labels)
-        {
-            Debug.Assert(meta.Type == Type.Gauge);
-            var name = QualifiedName();
-            _sumName = ExtendBaseName(name, "_sum");
-            _countName = ExtendBaseName(name, "_count");
-        }
-
-        public override void ExposeTo(StringBuilder stringBuilder)
-        {
-            stringBuilder.Append(_sumName).Append(' ').Append(_sum).Append('\n')
-                .Append(_countName).Append(' ').Append(_count);
-        }
-
-        public override void Add(double value)
-        {
-            _sum += value;
-            ++_count;
-        }
-
-        public override void MergeAll(LocalMetrics other)
-        {
-            if (!(other is LocalSummary o))
-                throw new ArgumentException("Incompatible type", nameof(other));
-
-            _sum += o._sum;
-            _count += o._count;
         }
     }
 }

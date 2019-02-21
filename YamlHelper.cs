@@ -48,9 +48,11 @@ namespace csv_prometheus_exporter
         public static IEnumerable<KeyValuePair<string, YamlNode>> StringMap(this YamlMappingNode node,
             string key)
         {
-            foreach (var (yamlKey, value) in node.Map(key)?.Children ?? Enumerable.Empty<KeyValuePair<YamlNode, YamlNode>>())
+            foreach (var (yamlKey, value) in node.Map(key)?.Children ??
+                                             Enumerable.Empty<KeyValuePair<YamlNode, YamlNode>>())
             {
-                yield return new KeyValuePair<string, YamlNode>(((YamlScalarNode) yamlKey).Value, value is YamlScalarNode scalar && scalar.Value == "~" ? null : value);
+                yield return new KeyValuePair<string, YamlNode>(((YamlScalarNode) yamlKey).Value,
+                    value is YamlScalarNode scalar && scalar.Value == "~" ? null : value);
             }
         }
     }

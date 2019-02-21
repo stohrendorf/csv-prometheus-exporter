@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -6,6 +7,7 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading;
+using csv_prometheus_exporter.MetricsImpl;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -25,7 +27,8 @@ namespace csv_prometheus_exporter
             services.AddRouting();
         }
 
-        public static readonly Dictionary<string, SSHLogScraper> Scrapers = new Dictionary<string, SSHLogScraper>();
+        public static readonly IDictionary<string, SSHLogScraper> Scrapers =
+            new ConcurrentDictionary<string, SSHLogScraper>();
 
         // This method gets called by the runtime. Use this method
         // to configure the HTTP request pipeline.
@@ -37,26 +40,17 @@ namespace csv_prometheus_exporter
             {
                 var aggregated = new Dictionary<string, MetricsMeta>();
 
-                lock (Scrapers)
+                foreach (var scraper in Scrapers.Values)
                 {
-                    foreach (var scraper in Scrapers.Values)
+                    foreach (var (k, v) in scraper.Metrics)
                     {
-                        Dictionary<string, MetricsMeta> m;
-                        lock (scraper.Metrics)
+                        if (!aggregated.TryGetValue(k, out var existing))
                         {
-                            m = new Dictionary<string, MetricsMeta>(scraper.Metrics);
+                            aggregated[k] = v.FullClone();
                         }
-
-                        foreach (var (k, v) in m)
+                        else
                         {
-                            if (!aggregated.TryGetValue(k, out var existing))
-                            {
-                                aggregated[k] = v.FullClone();
-                            }
-                            else
-                            {
-                                existing.Merge(v);
-                            }
+                            existing.Merge(v);
                         }
                     }
                 }
@@ -64,10 +58,13 @@ namespace csv_prometheus_exporter
                 context.Response.Headers["Content-type"] = "text/plain; version=0.0.4; charset=utf-8";
 
                 var result = new StringBuilder {Capacity = 100 << 20}; // 100 MB
-                foreach (var aggregatedMetric in aggregated.Values)
+                using (var textStream = new StreamWriter(context.Response.Body))
                 {
-                    aggregatedMetric.ExposeTo(result);
-                    result.Append('\n');
+                    foreach (var aggregatedMetric in aggregated.Values)
+                    {
+                        aggregatedMetric.ExposeTo(textStream);
+                        textStream.WriteLine();
+                    }
                 }
 
                 return context.Response.WriteAsync(result.ToString());
@@ -155,9 +152,9 @@ namespace csv_prometheus_exporter
                     );
                     var thread = new Thread(() => scraper.Run());
                     threads[targetId] = thread;
-                    lock (Startup.Scrapers)
-                        Startup.Scrapers[targetId] = scraper;
+                    Startup.Scrapers[targetId] = scraper;
                     thread.IsBackground = true;
+                    thread.Name = "scraper:" + targetId;
                     thread.Start();
                 }
             }
@@ -236,16 +233,16 @@ namespace csv_prometheus_exporter
                 switch (tp)
                 {
                     case "number":
-                        readers.Add(Parser.NumberReader(name));
+                        readers.Add(ValueParsers.NumberReader(name));
                         break;
                     case "clf_number":
-                        readers.Add(Parser.ClfNumberReader(name));
+                        readers.Add(ValueParsers.ClfNumberReader(name));
                         break;
                     case "request_header":
-                        readers.Add(Parser.RequestHeaderReader());
+                        readers.Add(ValueParsers.RequestHeaderReader());
                         break;
                     case "label":
-                        readers.Add(Parser.LabelReader(name));
+                        readers.Add(ValueParsers.LabelReader(name));
                         break;
                 }
             }
@@ -280,25 +277,25 @@ namespace csv_prometheus_exporter
             var threads = new Dictionary<string, Thread>();
             LoadScrapersConfig(threads, scrapeConfig, readers, metrics);
 
-            var loaderThread = new Thread(() =>
+            if (scrapeConfigScript != null)
             {
-                while (true)
+                var loaderThread = new Thread(() =>
                 {
-                    if (scrapeConfigScript != null)
+                    while (true)
                     {
                         LoadFromScript(threads, scrapeConfigScript, readers, metrics);
+
+                        if (configReloadInterval.HasValue)
+                            Thread.Sleep(TimeSpan.FromSeconds(configReloadInterval.Value));
+                        else
+                            Thread.Sleep(-1);
                     }
 
-                    if (configReloadInterval.HasValue)
-                        Thread.Sleep(TimeSpan.FromSeconds(configReloadInterval.Value));
-                    else
-                        Thread.Sleep(-1);
-                }
+                    // ReSharper disable once FunctionNeverReturns
+                }) {Name = "inventory-loader-thread"};
 
-                // ReSharper disable once FunctionNeverReturns
-            });
-
-            loaderThread.Start();
+                loaderThread.Start();
+            }
 
             WebHost.CreateDefaultBuilder(args)
                 .UseStartup<Startup>()

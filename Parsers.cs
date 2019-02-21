@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -10,25 +11,24 @@ using Renci.SshNet.Common;
 
 namespace csv_prometheus_exporter
 {
-    public class Metric
+    public class ParsedMetrics
     {
         public readonly SortedDictionary<string, string> Labels;
         public readonly IDictionary<string, double> Metrics = new Dictionary<string, double>();
 
-
-        public Metric(IDictionary<string, string> labels)
+        public ParsedMetrics(IDictionary<string, string> labels)
         {
             Labels = new SortedDictionary<string, string>(labels);
         }
     }
 
-    public delegate void Reader(Metric metric, string value);
+    public delegate void Reader(ParsedMetrics parsedMetrics, string value);
 
     public class ParserError : Exception
     {
     }
 
-    public static class Parser
+    public static class ValueParsers
     {
         public static Reader LabelReader(string name)
         {
@@ -90,14 +90,14 @@ namespace csv_prometheus_exporter
             _labels = new SortedDictionary<string, string>(labels);
         }
 
-        private Metric ConvertCsvLine(ICollection<string> line, IDictionary<string, string> labels)
+        private ParsedMetrics ConvertCsvLine(ICollection<string> line, IDictionary<string, string> labels)
         {
             if (_readers.Count != line.Count)
             {
                 throw new ParserError();
             }
 
-            var result = new Metric(labels);
+            var result = new ParsedMetrics(labels);
             foreach (var (reader, column) in _readers.Zip(line, (a, b) => new KeyValuePair<Reader, string>(a, b)))
             {
                 reader?.Invoke(result, column);
@@ -106,7 +106,7 @@ namespace csv_prometheus_exporter
             return result;
         }
 
-        private IEnumerable<Metric> ReadAll()
+        private IEnumerable<ParsedMetrics> ReadAll()
         {
             var parser = new CsvParser(_stream);
             parser.Configuration.BadDataFound =
@@ -116,7 +116,7 @@ namespace csv_prometheus_exporter
             parser.Configuration.IgnoreBlankLines = true;
             while (_stream.BaseStream.CanRead)
             {
-                Metric result = null;
+                ParsedMetrics result = null;
                 try
                 {
                     result = ConvertCsvLine(parser.Read(), _labels);
@@ -133,7 +133,7 @@ namespace csv_prometheus_exporter
         }
 
         public static void ParseFile(StreamReader stdout, string environment, IList<Reader> readers,
-            Dictionary<string, MetricsMeta> metrics)
+            IDictionary<string, MetricsMeta> metrics)
         {
             if (string.IsNullOrEmpty(environment))
                 environment = "N/A";
@@ -169,7 +169,7 @@ namespace csv_prometheus_exporter
         private readonly string _environment;
         private readonly int _timeout;
         private readonly IList<Reader> _readers;
-        public readonly Dictionary<string, MetricsMeta> Metrics;
+        public readonly IDictionary<string, MetricsMeta> Metrics = new ConcurrentDictionary<string, MetricsMeta>();
 
         public SSHLogScraper(string filename, string environment, IList<Reader> readers, string host, string user,
             string password, string pkey, int connectTimeout, IDictionary<string, MetricsMeta> metrics)
@@ -182,7 +182,10 @@ namespace csv_prometheus_exporter
             _environment = environment;
             _readers = readers;
             _timeout = connectTimeout;
-            Metrics = metrics.ToDictionary(_ => _.Key, _ => _.Value.Clone());
+            foreach (var (name, metric) in metrics)
+            {
+                Metrics[name] = new MetricsMeta(metric.BaseName, metric.Help, metric.Type, metric.Buckets);
+            }
             Metrics["parser_errors"] =
                 new MetricsMeta("parser_errors", "Number of lines which could not be parsed", Type.Counter);
             Metrics["lines_parsed"] =
