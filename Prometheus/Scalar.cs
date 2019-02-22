@@ -3,6 +3,9 @@ using System.Threading;
 
 namespace csv_prometheus_exporter.Prometheus
 {
+    /// <summary>
+    /// Thread safe double scalar with a limited set of operations.
+    /// </summary>
     public sealed class Scalar
     {
         private double _value;
@@ -44,7 +47,7 @@ namespace csv_prometheus_exporter.Prometheus
             }
         }
 
-        public double Get()
+        private double Get()
         {
             var gotLock = false;
             try
@@ -77,12 +80,12 @@ namespace csv_prometheus_exporter.Prometheus
 
         public static bool operator ==(Scalar left, Scalar right)
         {
-            return left.Equals(right);
+            return Equals(left, right);
         }
 
         public static bool operator !=(Scalar left, Scalar right)
         {
-            return !left.Equals(right);
+            return !Equals(left, right);
         }
 
         public override string ToString()
@@ -91,6 +94,9 @@ namespace csv_prometheus_exporter.Prometheus
         }
     }
 
+    /// <summary>
+    /// Thread safe ulong scalar with a limited set of operations.
+    /// </summary>
     public sealed class ULongScalar
     {
         private ulong _value;
@@ -165,12 +171,12 @@ namespace csv_prometheus_exporter.Prometheus
 
         public static bool operator ==(ULongScalar left, ULongScalar right)
         {
-            return left.Equals(right);
+            return Equals(left, right);
         }
 
         public static bool operator !=(ULongScalar left, ULongScalar right)
         {
-            return !left.Equals(right);
+            return !Equals(left, right);
         }
 
         public override string ToString()

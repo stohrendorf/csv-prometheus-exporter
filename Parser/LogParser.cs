@@ -11,7 +11,7 @@ namespace csv_prometheus_exporter.Parser
 {
     public class LogParser
     {
-        private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
+        private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
 
         private readonly LabelDict _labels;
         private readonly IList<ColumnReader> _readers;
@@ -35,12 +35,12 @@ namespace csv_prometheus_exporter.Parser
             return result;
         }
 
-        private IEnumerable<ParsedMetrics> ReadAll()
+        private IEnumerable<ParsedMetrics> ReadAll(char quotes = '"', char columnSeparator = ' ')
         {
             using (var sshStream = new SSHStream(_stream))
             using (var parser = new CsvReader(sshStream, Encoding.UTF8,
                 new CsvReader.Config
-                    {Quotes = '"', ColumnSeparator = ' ', WithQuotes = false}))
+                    {Quotes = quotes, ColumnSeparator = columnSeparator, WithQuotes = false}))
             {
                 while (_stream.CanRead)
                 {
@@ -55,21 +55,21 @@ namespace csv_prometheus_exporter.Parser
                     }
                     catch (Exception ex)
                     {
-                        Logger.Fatal(ex, $"Unexpected exception: {ex.Message}");
+                        logger.Fatal(ex, $"Unexpected exception: {ex.Message}");
                     }
 
                     yield return result;
                 }
             }
 
-            Logger.Info("End of stream");
+            logger.Info("End of stream");
         }
 
         public static void ParseFile(Stream stdout, string environment, IList<ColumnReader> readers,
             IDictionary<string, MetricBase> metrics)
         {
-            if (string.IsNullOrEmpty(environment))
-                environment = "N/A";
+            if(string.IsNullOrEmpty(environment))
+                throw new ArgumentException("Environment must not be empty", nameof(environment));
 
             var envDict = new LabelDict(environment);
 

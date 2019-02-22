@@ -169,23 +169,7 @@ namespace csv_prometheus_exporter.Scraper
                     Startup.Metrics[name] = new MetricBase(name, $"Sum of {name}", MetricsType.Counter);
                 }
 
-                switch (type)
-                {
-                    case "number":
-                        readers.Add(ValueParsers.NumberReader(name));
-                        break;
-                    case "clf_number":
-                        readers.Add(ValueParsers.ClfNumberReader(name));
-                        break;
-                    case "request_header":
-                        readers.Add(ValueParsers.RequestHeaderReader());
-                        break;
-                    case "label":
-                        readers.Add(ValueParsers.LabelReader(name));
-                        break;
-                    default:
-                        throw new ArgumentOutOfRangeException(nameof(type), type, "Invalid metrics type specified");
-                }
+                readers.Add(ColumnReaders.Create(type, name));
             }
 
             MetricBase.GlobalPrefix = scrapeConfig.Map("global").String("prefix");

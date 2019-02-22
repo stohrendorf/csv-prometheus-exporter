@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using csv_prometheus_exporter.Prometheus;
 using JetBrains.Annotations;
 
 namespace csv_prometheus_exporter.Parser

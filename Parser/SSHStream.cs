@@ -4,6 +4,10 @@ using JetBrains.Annotations;
 
 namespace csv_prometheus_exporter.Parser
 {
+    /// <summary>
+    /// Simple wrapper around SSH stdout streams, because the library doesn't support <see cref="Stream#Read"/> with
+    /// offsets other than zero.
+    /// </summary>
     public class SSHStream : Stream
     {
         private readonly Stream _stream;

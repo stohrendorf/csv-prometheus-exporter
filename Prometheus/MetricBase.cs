@@ -10,9 +10,12 @@ using NLog;
 
 namespace csv_prometheus_exporter.Prometheus
 {
+    /// <summary>
+    /// Basic metric definition and container for its instances.
+    /// </summary>
     public sealed class MetricBase
     {
-        private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
+        private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
 
         public static string GlobalPrefix = null;
         public static int TTL = 60;
@@ -99,7 +102,7 @@ namespace csv_prometheus_exporter.Prometheus
         {
             lock (_metricsLock)
             {
-                Logger.Info($"Doing metric extinction for {_baseName}...");
+                logger.Info($"Doing metric extinction for {_baseName}...");
                 var stopWatch = new Stopwatch();
                 stopWatch.Start();
                 var old = new Dictionary<LabelDict, LabeledMetric>(_metrics);
@@ -115,7 +118,7 @@ namespace csv_prometheus_exporter.Prometheus
                 }
 
                 stopWatch.Stop();
-                Logger.Info(
+                logger.Info(
                     $"Metrics extinction for {_baseName} took {stopWatch.Elapsed}; of {old.Count} metrics, {_metrics.Count} were retained");
             }
         }

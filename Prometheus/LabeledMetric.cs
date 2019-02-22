@@ -11,20 +11,20 @@ namespace csv_prometheus_exporter.Prometheus
     {
         protected LabeledMetric([NotNull] MetricBase metricBase, [NotNull] LabelDict labels)
         {
-            MetricBase = metricBase;
-            Labels = labels;
+            _metricBase = metricBase;
+            _labels = labels;
         }
 
-        protected LabelDict Labels { get; }
+        private readonly LabelDict _labels;
 
-        protected MetricBase MetricBase { get; }
-        public bool ExposeAlways => MetricBase.ExposeAlways;
+        private readonly MetricBase _metricBase;
+        public bool ExposeAlways => _metricBase.ExposeAlways;
 
         public DateTime LastUpdated = DateTime.Now;
 
         protected string QualifiedName([CanBeNull] string le = null)
         {
-            return $"{MetricBase.PrefixedName}{{{Labels.ToString(le)}}}";
+            return $"{_metricBase.PrefixedName}{{{_labels.ToString(le)}}}";
         }
 
         public abstract void ExposeTo(StreamWriter stream);

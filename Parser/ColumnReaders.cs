@@ -1,15 +1,38 @@
+using System;
 using System.Globalization;
 
 namespace csv_prometheus_exporter.Parser
 {
-    public static class ValueParsers
+    public delegate void ColumnReader(ParsedMetrics parsedMetrics, string value);
+
+    /// <summary>
+    /// Collection of available CSV column parsers.
+    /// </summary>
+    public static class ColumnReaders
     {
-        public static ColumnReader LabelReader(string name)
+        public static ColumnReader Create(string type, string name)
+        {
+            switch (type)
+            {
+                case "number":
+                    return NumberReader(name);
+                case "clf_number":
+                    return ClfNumberReader(name);
+                case "request_header":
+                    return RequestHeaderReader();
+                case "label":
+                    return LabelReader(name);
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(type), type, "Invalid data type specified");
+            }
+        }
+
+        private static ColumnReader LabelReader(string name)
         {
             return (metric, value) => metric.Labels.Set(name, value);
         }
 
-        public static ColumnReader RequestHeaderReader()
+        private static ColumnReader RequestHeaderReader()
         {
             return (metric, value) =>
             {
@@ -22,7 +45,7 @@ namespace csv_prometheus_exporter.Parser
             };
         }
 
-        public static ColumnReader ClfNumberReader(string name)
+        private static ColumnReader ClfNumberReader(string name)
         {
             return (metric, value) =>
             {
@@ -39,7 +62,7 @@ namespace csv_prometheus_exporter.Parser
             };
         }
 
-        public static ColumnReader NumberReader(string name)
+        private static ColumnReader NumberReader(string name)
         {
             return (metric, value) =>
             {
