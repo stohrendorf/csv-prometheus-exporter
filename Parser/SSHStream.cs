@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using JetBrains.Annotations;
 
-namespace csv_prometheus_exporter
+namespace csv_prometheus_exporter.Parser
 {
     public class SSHStream : Stream
     {
@@ -11,6 +11,17 @@ namespace csv_prometheus_exporter
         public SSHStream([NotNull] Stream stream)
         {
             _stream = stream;
+        }
+
+        public override bool CanRead => _stream.CanRead;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => _stream.Length;
+
+        public override long Position
+        {
+            get => _stream.Position;
+            set => _stream.Position = value;
         }
 
         public override void Flush()
@@ -24,7 +35,7 @@ namespace csv_prometheus_exporter
                 return _stream.Read(buffer, offset, count);
 
             var tmp = new byte[count];
-            int totalRead = 0;
+            var totalRead = 0;
             while (_stream.CanRead && totalRead < count)
             {
                 var current = _stream.Read(tmp, 0, count - totalRead);
@@ -48,17 +59,6 @@ namespace csv_prometheus_exporter
         public override void Write(byte[] buffer, int offset, int count)
         {
             throw new InvalidOperationException();
-        }
-
-        public override bool CanRead => _stream.CanRead;
-        public override bool CanSeek => false;
-        public override bool CanWrite => false;
-        public override long Length => _stream.Length;
-
-        public override long Position
-        {
-            get => _stream.Position;
-            set => _stream.Position = value;
         }
     }
 }

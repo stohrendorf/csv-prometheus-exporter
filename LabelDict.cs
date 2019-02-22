@@ -74,14 +74,11 @@ namespace csv_prometheus_exporter
 
         public string ToString(string le)
         {
-            string result = $"environment={Quote(Environment)}";
+            var result = $"environment={Quote(Environment)}";
             if (!string.IsNullOrEmpty(le))
                 result += ",le=" + Quote(le);
 
-            foreach (var (key, value) in Labels)
-            {
-                result += $",{key}={Quote(value)}";
-            }
+            foreach (var (key, value) in Labels) result += $",{key}={Quote(value)}";
 
             return result;
         }

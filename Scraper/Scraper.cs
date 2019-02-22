@@ -1,19 +1,14 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Threading;
-using System.Threading.Tasks;
-using csv_prometheus_exporter.MetricsImpl;
+using csv_prometheus_exporter.Parser;
+using csv_prometheus_exporter.Prometheus;
 using Microsoft.AspNetCore;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NLog;
 using NLog.Config;
@@ -21,170 +16,30 @@ using NLog.Targets;
 using NLog.Web;
 using YamlDotNet.RepresentationModel;
 using ILogger = NLog.ILogger;
-using LogLevel = Microsoft.Extensions.Logging.LogLevel;
+using LogLevel = NLog.LogLevel;
 
-namespace csv_prometheus_exporter
+namespace csv_prometheus_exporter.Scraper
 {
-    public class Startup
-    {
-        private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
-
-        public static readonly IDictionary<string, SSHLogScraper> Scrapers =
-            new ConcurrentDictionary<string, SSHLogScraper>();
-
-        // This method gets called by the runtime. Use this method
-        // to add services to the container.
-        public void ConfigureServices(IServiceCollection services)
-        {
-            services.AddRouting();
-        }
-
-        private static Task Collect(HttpContext context)
-        {
-            return Task.Factory
-                .StartNew(GatherLastUpdateTimes)
-                .ContinueWith(FilterStaleMetrics)
-                .ContinueWith(AggregateMetrics)
-                .ContinueWith(_ => ExposeData(_, context));
-        }
-
-        private static Dictionary<string, MetricsMeta> AggregateMetrics(
-            Task<Dictionary<string, ISet<LabelDict>>> livingMetrics)
-        {
-            var stopWatch = new Stopwatch();
-            stopWatch.Start();
-            // aggregate all non-stale metrics
-            var aggregated = new Dictionary<string, MetricsMeta>();
-
-            foreach (var scraper in Scrapers.Values)
-            foreach (var (metricName, metricData) in scraper.Metrics)
-            {
-                if (!livingMetrics.Result.TryGetValue(metricName, out var labelFilter)) continue;
-
-                if (!aggregated.TryGetValue(metricName, out var existing))
-                    aggregated[metricName] = metricData.DeepClone(labelFilter);
-                else
-                    existing.Add(metricData, labelFilter);
-            }
-
-            stopWatch.Stop();
-            Logger.Info($"Aggregate active metrics: {stopWatch.Elapsed}");
-            return aggregated;
-        }
-
-        private static Dictionary<string, ISet<LabelDict>> FilterStaleMetrics(
-            Task<Dictionary<string, Dictionary<LabelDict, DateTime>>> ttlsByName)
-        {
-            var stopWatch = new Stopwatch();
-            stopWatch.Start();
-            // filter out stale metrics
-            var eol = DateTime.Now - TimeSpan.FromSeconds(MetricsMeta.TTL);
-            var livingMetrics = new Dictionary<string, ISet<LabelDict>>();
-            foreach (var (metricName, ttls) in ttlsByName.Result)
-            {
-                foreach (var (labels, ttl) in ttls)
-                {
-                    if (ttl < eol) continue;
-
-                    if (!livingMetrics.TryGetValue(metricName, out var set))
-                        set = livingMetrics[metricName] = new HashSet<LabelDict>();
-                    set.Add(labels);
-                }
-            }
-
-            stopWatch.Stop();
-            Logger.Info($"Filter stale metrics: {stopWatch.Elapsed}");
-            return livingMetrics;
-        }
-
-        private static Dictionary<string, Dictionary<LabelDict, DateTime>> GatherLastUpdateTimes()
-        {
-            var stopWatch = new Stopwatch();
-            stopWatch.Start();
-            var ttlsByName = new Dictionary<string, Dictionary<LabelDict, DateTime>>();
-            foreach (var scraper in Scrapers.Values.ToList())
-            foreach (var (metricName, metricData) in scraper.Metrics.ToList())
-            {
-                if (!ttlsByName.TryGetValue(metricName, out var ttls))
-                    ttls = ttlsByName[metricName] = new Dictionary<LabelDict, DateTime>();
-                metricData.GetLatestTTL(ttls);
-            }
-
-            stopWatch.Stop();
-            Logger.Info($"Gather metrics update times: {stopWatch.Elapsed}");
-            return ttlsByName;
-        }
-
-        private static void ExposeData(Task<Dictionary<string, MetricsMeta>> aggregated, HttpContext context)
-        {
-            var stopWatch = new Stopwatch();
-            stopWatch.Start();
-            // write the results
-            context.Response.Headers["Content-type"] = "text/plain; version=0.0.4; charset=utf-8";
-            using (var textStream = new StreamWriter(context.Response.Body))
-            {
-                foreach (var aggregatedMetric in aggregated.Result.Values) aggregatedMetric.ExposeTo(textStream);
-
-                var process = Process.GetCurrentProcess();
-
-                var meta = new MetricsMeta("process_cpu_seconds", "Process CPU seconds", Type.Counter);
-                var metric = meta.GetMetrics(new LabelDict(Environment.MachineName));
-                metric.Add(process.TotalProcessorTime.TotalSeconds);
-                meta.ExposeTo(textStream);
-
-                meta = new MetricsMeta("process_resident_memory_bytes", "Process RSS", Type.Gauge);
-                metric = meta.GetMetrics(new LabelDict(Environment.MachineName));
-                metric.Add(process.WorkingSet64);
-                meta.ExposeTo(textStream);
-
-                meta = new MetricsMeta("process_start_time_seconds", "Process Start Time (Unix epoch)", Type.Counter);
-                metric = meta.GetMetrics(new LabelDict(Environment.MachineName));
-                metric.Add(((DateTimeOffset) process.StartTime).ToUnixTimeSeconds());
-                meta.ExposeTo(textStream);
-
-                meta = new MetricsMeta("scraper_active_metrics", "Currently exposed (active) metrics", Type.Gauge);
-                metric = meta.GetMetrics(new LabelDict(Environment.MachineName));
-                metric.Add(aggregated.Result.Sum(_ => _.Value.Count));
-                metric.ExposeTo(textStream);
-            }
-
-            stopWatch.Stop();
-            Logger.Info($"Write active metrics to response stream: {stopWatch.Elapsed}");
-        }
-
-        // This method gets called by the runtime. Use this method
-        // to configure the HTTP request pipeline.
-        public void Configure(IApplicationBuilder app)
-        {
-            var routeBuilder = new RouteBuilder(app);
-
-            routeBuilder.MapGet("metrics", Collect);
-
-            app.UseRouter(routeBuilder.Build());
-        }
-    }
-
     internal static class Scraper
     {
         private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
-        private static void ReadCoreConfig(out IList<Reader> readers, out string scrapeConfigScript,
-            out int? configReloadInterval, out YamlMappingNode scrapeConfig,
-            out IDictionary<string, MetricsMeta> metrics)
+        private static void ReadCoreConfig(out IList<ColumnReader> readers, out string scrapeConfigScript,
+            out int? configReloadInterval, out YamlMappingNode scrapeConfig)
         {
             var scrapeConfigFilename = Environment.GetEnvironmentVariable("SCRAPECONFIG") ?? "/etc/scrapeconfig.yml";
             var yaml = new YamlStream();
             yaml.Load(new StreamReader(scrapeConfigFilename));
             scrapeConfig = (YamlMappingNode) yaml.Documents[0].RootNode;
 
-            LoadReadersConfig(scrapeConfig, out readers, out metrics);
+            LoadReadersConfig(scrapeConfig, out readers);
             configReloadInterval = scrapeConfig.Int("reload-interval");
 
             scrapeConfigScript = scrapeConfig.String("script");
         }
 
         private static void LoadFromScript(IDictionary<string, Thread> threads, string scrapeConfigScript,
-            IList<Reader> readers, IDictionary<string, MetricsMeta> metrics)
+            IList<ColumnReader> readers, IDictionary<string, MetricBase> metrics)
         {
             var yaml = new YamlStream();
             var split = scrapeConfigScript.Split(' ');
@@ -208,7 +63,7 @@ namespace csv_prometheus_exporter
 
         private static HashSet<string> LoadSshScrapersConfig(IDictionary<string, Thread> threads,
             YamlMappingNode config,
-            IList<Reader> readers, IDictionary<string, MetricsMeta> metrics)
+            IList<ColumnReader> readers, IDictionary<string, MetricBase> metrics)
         {
             var ids = new HashSet<string>();
             var defaultFile = config.String("file");
@@ -251,10 +106,9 @@ namespace csv_prometheus_exporter
             return ids;
         }
 
-        private static void LoadReadersConfig(YamlMappingNode scrapeConfig, out IList<Reader> readers,
-            out IDictionary<string, MetricsMeta> metrics)
+        private static void LoadReadersConfig(YamlMappingNode scrapeConfig, out IList<ColumnReader> readers)
         {
-            readers = new List<Reader>();
+            readers = new List<ColumnReader>();
             var histogramBuckets = new Dictionary<string, double[]>();
             foreach (var (histogramName, yamlBuckets) in scrapeConfig.Map("global").StringMap("histograms"))
             {
@@ -264,13 +118,13 @@ namespace csv_prometheus_exporter
 
                 if (buckets == null || buckets.Children.Count == 0)
                     histogramBuckets[histogramName] =
-                        LocalHistogram.DefaultBuckets;
+                        Histogram.DefaultBuckets;
                 else
                     histogramBuckets[histogramName] =
                         buckets.Cast<YamlScalarNode>().Select(x => double.Parse(x.Value)).ToArray();
             }
 
-            metrics = new Dictionary<string, MetricsMeta>();
+            Startup.Metrics.Clear();
             foreach (var fmtEntry in scrapeConfig.Map("global").List("format"))
             {
                 if (fmtEntry is YamlScalarNode scalar && scalar.Value == "~")
@@ -307,12 +161,12 @@ namespace csv_prometheus_exporter
                     var histogramType = spl[1].Trim();
                     if (!histogramBuckets.ContainsKey(histogramType))
                         throw new Exception($"Histogram type {histogramType} is not defined");
-                    metrics[name] = new MetricsMeta(name, $"Histogram of {name}", Type.Histogram,
+                    Startup.Metrics[name] = new MetricBase(name, $"Histogram of {name}", MetricsType.Histogram,
                         histogramBuckets[histogramType]);
                 }
                 else if (tp != "label" && tp != "request_header")
                 {
-                    metrics[name] = new MetricsMeta(name, $"Sum of {name}", Type.Counter);
+                    Startup.Metrics[name] = new MetricBase(name, $"Sum of {name}", MetricsType.Counter);
                 }
 
                 switch (tp)
@@ -332,12 +186,20 @@ namespace csv_prometheus_exporter
                 }
             }
 
-            MetricsMeta.GlobalPrefix = scrapeConfig.Map("global").String("prefix");
-            MetricsMeta.TTL = scrapeConfig.Map("global").Int("ttl") ?? 60;
+            MetricBase.GlobalPrefix = scrapeConfig.Map("global").String("prefix");
+            MetricBase.TTL = scrapeConfig.Map("global").Int("ttl") ?? 60;
+
+            Startup.Metrics["parser_errors"] =
+                new MetricBase("parser_errors", "Number of lines which could not be parsed", MetricsType.Counter);
+            Startup.Metrics["lines_parsed"] =
+                new MetricBase("lines_parsed", "Number of successfully parsed lines", MetricsType.Counter);
+            Startup.Metrics["connected"] =
+                new MetricBase("connected", "Whether this target is currently being scraped", MetricsType.Gauge, null,
+                    true);
         }
 
         private static void LoadScrapersConfig(IDictionary<string, Thread> threads, YamlMappingNode scrapeConfig,
-            IList<Reader> readers, IDictionary<string, MetricsMeta> metrics)
+            IList<ColumnReader> readers, IDictionary<string, MetricBase> metrics)
         {
             var loadedIds = LoadSshScrapersConfig(threads, scrapeConfig.Map("ssh") ?? new YamlMappingNode(), readers,
                 metrics);
@@ -351,7 +213,7 @@ namespace csv_prometheus_exporter
             var config = new LoggingConfiguration();
             var console = new ColoredConsoleTarget("console");
             config.AddTarget(console);
-            config.AddRule(NLog.LogLevel.Info, NLog.LogLevel.Fatal, console);
+            config.AddRule(LogLevel.Info, LogLevel.Fatal, console);
             LogManager.Configuration = config;
         }
 
@@ -366,9 +228,9 @@ namespace csv_prometheus_exporter
                 throw new Exception("Failed to set minimum thread count");
 
             ReadCoreConfig(out var readers, out var scrapeConfigScript, out var configReloadInterval,
-                out var scrapeConfig, out var metrics);
+                out var scrapeConfig);
             var threads = new Dictionary<string, Thread>();
-            LoadScrapersConfig(threads, scrapeConfig, readers, metrics);
+            LoadScrapersConfig(threads, scrapeConfig, readers, Startup.Metrics);
 
             if (scrapeConfigScript != null)
             {
@@ -376,7 +238,7 @@ namespace csv_prometheus_exporter
                 {
                     while (true)
                     {
-                        LoadFromScript(threads, scrapeConfigScript, readers, metrics);
+                        LoadFromScript(threads, scrapeConfigScript, readers, Startup.Metrics);
 
                         if (configReloadInterval.HasValue)
                             Thread.Sleep(TimeSpan.FromSeconds(configReloadInterval.Value));
@@ -396,7 +258,7 @@ namespace csv_prometheus_exporter
                 .ConfigureLogging(logging =>
                 {
                     logging.ClearProviders();
-                    logging.SetMinimumLevel(LogLevel.Information);
+                    logging.SetMinimumLevel(Microsoft.Extensions.Logging.LogLevel.Information);
                 })
                 .UseNLog()
                 .Build()

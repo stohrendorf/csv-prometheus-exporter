@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using YamlDotNet.RepresentationModel;
 
-namespace csv_prometheus_exporter
+namespace csv_prometheus_exporter.Scraper
 {
     public static class YamlHelper
     {

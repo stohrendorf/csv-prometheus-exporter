@@ -1,13 +1,12 @@
 using System;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using JetBrains.Annotations;
 
-namespace csv_prometheus_exporter.MetricsImpl
+namespace csv_prometheus_exporter.Prometheus
 {
-    public sealed class LocalHistogram : LocalMetrics
+    public sealed class Histogram : LabeledMetric
     {
         public static readonly double[] DefaultBuckets =
             {.005, .01, .025, .05, .075, .1, .25, .5, .75, 1.0, 2.5, 5.0, 7.5, 10.0, double.PositiveInfinity};
@@ -16,15 +15,15 @@ namespace csv_prometheus_exporter.MetricsImpl
 
         private readonly double[] _buckets;
         private readonly string _countName;
-        private readonly ulong[] _counts;
+        private readonly ULongScalar[] _counts;
+        private readonly ULongScalar _observations = new ULongScalar();
+        private readonly Scalar _sum = new Scalar();
         private readonly string _sumName;
-        private ulong _observations;
-        private double _sum;
 
-        public LocalHistogram([NotNull] MetricsMeta meta, [NotNull] LabelDict labels, [NotNull] double[] buckets)
-            : base(meta, labels)
+        public Histogram([NotNull] MetricBase metricBase, [NotNull] LabelDict labels, [NotNull] double[] buckets)
+            : base(metricBase, labels)
         {
-            Debug.Assert(meta.Type == Type.Histogram);
+            Debug.Assert(metricBase.Type == MetricsType.Histogram);
             _buckets = buckets.OrderBy(_ => _).ToArray();
             if (_buckets.Length == 0)
                 _buckets = DefaultBuckets;
@@ -34,20 +33,11 @@ namespace csv_prometheus_exporter.MetricsImpl
             if (_buckets.Length < 2)
                 throw new ArgumentException("Must at least provide one bucket", nameof(buckets));
 
-            _counts = Enumerable.Range(0, _buckets.Length).Select(_ => 0UL).ToArray();
+            _counts = Enumerable.Range(0, _buckets.Length).Select(_ => new ULongScalar()).ToArray();
             _bucketName = QualifiedName("$$$$$");
             var name = QualifiedName();
             _sumName = ExtendBaseName(name, "_sum");
             _countName = ExtendBaseName(name, "_count");
-        }
-
-        private LocalHistogram(LocalHistogram self) : base(self.Meta, self.Labels)
-        {
-            _buckets = self._buckets;
-            _counts = (ulong[]) self._counts.Clone();
-            _bucketName = self._bucketName;
-            _sumName = self._sumName;
-            _countName = self._countName;
         }
 
         public override void ExposeTo(StreamWriter stream)
@@ -56,39 +46,19 @@ namespace csv_prometheus_exporter.MetricsImpl
                 stream.WriteLine("{0} {1}", _bucketName.Replace("$$$$$", ToGoString(_buckets[i])), _counts[i]);
 
             stream.WriteLine("{0} {1}", _countName, _observations);
-            stream.WriteLine("{0} {1}", _sumName, _sum.ToString(CultureInfo.InvariantCulture));
+            stream.WriteLine("{0} {1}", _sumName, _sum);
         }
 
         public override void Add(double value)
         {
-            ++_observations;
-            _sum += value;
+            _observations.Add(1);
+            _sum.Add(value);
             for (var i = 0; i < _buckets.Length; ++i)
                 if (value <= _buckets[i])
                 {
-                    ++_counts[i];
+                    _counts[i].Add(1);
                     break;
                 }
-        }
-
-        public override void Add(LocalMetrics other)
-        {
-#if DEBUG
-            if (!(other is LocalHistogram o))
-                throw new ArgumentException("Incompatible type", nameof(other));
-#else
-            var o = (LocalHistogram) other;
-#endif
-
-            _observations += o._observations;
-            _sum += o._sum;
-            for (var i = 0; i < _counts.Length; ++i)
-                _counts[i] += o._counts[i];
-        }
-
-        public override LocalMetrics Clone()
-        {
-            return new LocalHistogram(this);
         }
     }
 }
