@@ -1,16 +1,61 @@
 # CSV Prometheus Exporter
 
-A simple exporter for CSV-based files[*].  Basically runs "tail -f" on local files or remote files over SSH and aggregates
-them into Prometheus compatible metrics. 
+A simple exporter for CSV-based files[*].  Basically runs "tail -f" on remote files over SSH and aggregates
+them into Prometheus compatible metrics. It is capable of processing at least 100 servers with thousands of
+requests per second on a single core with a response time below 2 seconds.
 
 > [*] CSV in this case means "space-separated, double-quote delimited format"; this piece of software was primarily
-> developed for parsing access logs, but if needed, it can be extended to parse any CSV-based format that Python's
-> CSV parser can handle.
+> developed for parsing access logs, but if needed, it can be extended to parse any CSV-based format that
+> [FastCsvParser](https://github.com/bopohaa/CsvParser) can handle.
 
 Metrics are exposed at `host:5000/metrics`.
 
 ## Configuration
-Columns are defined as follows, with an example for apache access logs:
+The configuration format is defined as follows.
+```yaml
+global:
+  ttl: 60 # The metrics' time-to-live in seconds.
+  prefix: some_prefix  # If set, all metrics (including process metrics) will be exposed as "some_prefix:metric".
+  histograms: # optional
+    - response_time: ~  # Default bucket limits.
+    - request_size: [10, 20, 50, ...]  # Upper bucket limits, "+Inf" is added automatically.
+  format:
+    - name: type
+    - name: type+request_size  # Expose the metric as a histogram, using the histograms defined above.
+    - ...
+
+script: python3 some-inventory-script.py # Output must be the the same as the ssh section below, including the "ssh" key.
+reload-interval: 30 # Optional; seconds between attempts to execute the script above.
+
+ssh:
+  # Provide some default settings; these can be overriden per environment.
+  file: /var/log/some-csv-file # tail -f on this
+  user: log-reader # SSH user
+  password: secure123
+  pkey: /home/log-reader-id-rsa # private key file (optional)
+  environments:
+    environmentA:
+      hosts: [...]
+    environmentB:
+      hosts: [...]
+      file: /var/log/some-other-csv-file
+      user: someotheruser
+```
+
+The supported `type` values are:
+* `number` for floating point values, exposed as a `counter`, or as a `histogram`.
+* `clf_number`, which behaves the same as `number`, except that a single `-` will be mapped to zero.
+* `label` will use the column's value as a label.
+* `request_header` expects a HTTP request header; a value of `POST /foo HTTP/1.1` will emit the labels
+  `request_method="POST"`, `request_uri="/foo"` and `request_http_version="HTTP/1.1"`.
+  
+Each metric (except process metrics) will contain the label `environment`.
+  
+Scalar metrics will be accumulated; successfully processed lines will be counted in `lines_parsed`, with its labels
+set to the CSV line's labels. If something bad happens, the erroneous lines will be counted in `parser_errors`,
+but as the entry could not reliably parsed at this point, it will only contain the `environment` label.
+
+For example, to parse access logs, you could use this.
 ```yaml
 format: # based on "%h %l %u %t \"%r\" %>s %b"
 - remote_host: label
@@ -22,22 +67,27 @@ format: # based on "%h %l %u %t \"%r\" %>s %b"
 - body_bytes_sent: clf_number  # maps a single dash to zero, otherwise behaves like "number"
 ```
 
-* Names are either used as metric names or label names.
-* All non-labels (using numeric parsers) are accumulated.  This means that the sampling frequency does not have any
-  impact on the metrics.
-* For metrics, use any of these parsers: `number` or `clf_number`.
-* A special parser `request_header` is described above.
-
-> Please not the following:
->   1. Every metric has the label `environment` - do not use this name for one of your labels.
->   2. `parser_errors` and `lines_parsed` are reserved metric names.
->   3. Every metric you provide will create the Prometheus metrics `<name>_total` and `<name>_created`;
->      these contain the sum of the values and the unix timestamp when they were first seen.
->   4. Additional process information will also be provided, but without the prefix specified in the configuration.
-
 Place your `scrapeconfig.yml` either in the folder you're starting `app.py` from, or
 provide the environment variable `SCRAPECONFIG` with a config file path;
 [see here for a config file example](./scrapeconfig.example.yml), showing all of its features.
+
+# Installation
+
+A docker image, containing `python3` and `curl`, is available
+[here](https://hub.docker.com/r/stohrendorf/csv-prometheus-exporter/).
+
+# Technical & Practical Notes
+
+## The TTL Thing
+Metrics track when they were last updated. If a metric doesn't change within the TTL specified in the
+config file (which defaults to 60 seconds), it will not be exposed via `/metrics` anymore; this is the
+first phase of garbage collection to avoid excessive traffic. If a metric is in the first phase of garbage
+collection, and doesn't receive an update for another period of the specified TTL, it will be fully evicted
+from the processing.
+
+Practice has shown that this two-phase metric garbage collection is strictly necessary to avoid excessive
+response sizes and to avoid the process to be clogged up by processing dead metrics. It doesn't have any known
+serious impacts on the metrics' values, though.
 
 ## A note about Prometheus performance
 Performance matters, and the exported metrics are not usable immediately in most cases.  The following

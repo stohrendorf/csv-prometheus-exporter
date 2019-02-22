@@ -5,6 +5,8 @@ before doing so. Also, please provide a screenshot if possible.*
 
 ## Access Logs
 
+**Note that this dashboard is outdated and shows some erroneous and misleading values.**
+
 [Grafana Dashboard File for Import](./access-logs.json)
 
 ![access logs screenshot](./access-logs.jpg)

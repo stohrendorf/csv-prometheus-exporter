@@ -149,7 +149,7 @@ namespace csv_prometheus_exporter.Scraper
                 if (type == "label" && name == "environment")
                     throw new Exception("'environment' is a reserved label name");
 
-                if (type != "label" && (name == "parser_errors" || name == "lines_parsed" || name == "in_bytes"))
+                if (type != "label" && (name == "parser_errors" || name == "lines_parsed"))
                     throw new Exception($"'{name}' is a reserved metric name");
 
                 if (type.Contains('+'))
