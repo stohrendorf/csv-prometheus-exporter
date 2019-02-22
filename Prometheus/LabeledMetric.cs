@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
@@ -18,6 +19,8 @@ namespace csv_prometheus_exporter.Prometheus
 
         protected MetricBase MetricBase { get; }
         public bool ExposeAlways => MetricBase.ExposeAlways;
+
+        public DateTime LastUpdated = DateTime.Now;
 
         protected string QualifiedName([CanBeNull] string le = null)
         {

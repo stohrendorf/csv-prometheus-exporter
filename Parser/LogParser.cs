@@ -83,8 +83,7 @@ namespace csv_prometheus_exporter.Parser
                 metrics["lines_parsed"].WithLabels(entry.Labels).Add(1);
 
                 foreach (var (name, amount) in entry.Metrics)
-                    if (metrics.TryGetValue(name, out var metric))
-                        metric.WithLabels(entry.Labels).Add(amount);
+                    metrics[name].WithLabels(entry.Labels).Add(amount);
             }
         }
     }

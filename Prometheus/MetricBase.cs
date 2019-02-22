@@ -21,8 +21,8 @@ namespace csv_prometheus_exporter.Prometheus
         [CanBeNull] private readonly double[] _buckets;
         [NotNull] private readonly string _help;
 
-        [NotNull] private readonly IDictionary<LabelDict, MetricUpdateTracker> _metrics =
-            new Dictionary<LabelDict, MetricUpdateTracker>();
+        [NotNull] private readonly IDictionary<LabelDict, LabeledMetric> _metrics =
+            new Dictionary<LabelDict, LabeledMetric>();
 
         private readonly object _metricsLock = new object();
 
@@ -50,7 +50,6 @@ namespace csv_prometheus_exporter.Prometheus
 
             if (type == MetricsType.Counter && !_baseName.EndsWith("_total"))
             {
-                Logger.Warn($"Counter metric \"{_baseName}\" will be adjusted to have the \"..._total\" suffix");
                 _baseName += "_total";
             }
         }
@@ -74,7 +73,7 @@ namespace csv_prometheus_exporter.Prometheus
         {
             stream.WriteLine(Header);
 
-            IList<MetricUpdateTracker> metrics;
+            IList<LabeledMetric> metrics;
             lock (_metricsLock)
             {
                 metrics = _metrics.Values.ToList(); // copy
@@ -82,12 +81,12 @@ namespace csv_prometheus_exporter.Prometheus
 
             var exposed = 0;
             var eol = DateTime.Now - TimeSpan.FromSeconds(TTL);
-            foreach (var ttlM in metrics)
+            foreach (var metric in metrics)
             {
-                if (!ttlM.Metric.ExposeAlways && ttlM.LastUpdated < eol)
+                if (!metric.ExposeAlways && metric.LastUpdated < eol)
                     continue;
 
-                ttlM.Metric.ExposeTo(stream);
+                metric.ExposeTo(stream);
                 ++exposed;
             }
 
@@ -98,25 +97,27 @@ namespace csv_prometheus_exporter.Prometheus
 
         private void KillDeadMetrics()
         {
-            Logger.Info($"Doing metric extinction for {_baseName}...");
-            var stopWatch = new Stopwatch();
             lock (_metricsLock)
             {
-                var old = _metrics;
+                Logger.Info($"Doing metric extinction for {_baseName}...");
+                var stopWatch = new Stopwatch();
+                stopWatch.Start();
+                var old = new Dictionary<LabelDict, LabeledMetric>(_metrics);
                 _metrics.Clear();
-                var eol = DateTime.Now - TimeSpan.FromSeconds(TTL * 5);
+                var eol = DateTime.Now - TimeSpan.FromSeconds(TTL * 2);
 
-                foreach (var (labels, ttlM) in old)
+                foreach (var (labels, metric) in old)
                 {
-                    if (!ttlM.Metric.ExposeAlways && ttlM.LastUpdated < eol)
+                    if (!metric.ExposeAlways && metric.LastUpdated < eol)
                         continue;
 
-                    _metrics[labels] = ttlM;
+                    _metrics[labels] = metric;
                 }
-            }
 
-            stopWatch.Stop();
-            Logger.Info($"Metrics extinction for {_baseName} took {stopWatch.Elapsed}");
+                stopWatch.Stop();
+                Logger.Info(
+                    $"Metrics extinction for {_baseName} took {stopWatch.Elapsed}; of {old.Count} metrics, {_metrics.Count} were retained");
+            }
         }
 
         private LabeledMetric CreateMetrics([NotNull] LabelDict labels)
@@ -141,10 +142,13 @@ namespace csv_prometheus_exporter.Prometheus
         {
             lock (_metricsLock)
             {
-                if (_metrics.TryGetValue(labels, out var ttlM))
-                    return ttlM.TouchAndGet();
+                if (_metrics.TryGetValue(labels, out var metric))
+                {
+                    metric.LastUpdated = DateTime.Now;
+                    return metric;
+                }
 
-                return (_metrics[labels] = new MetricUpdateTracker(CreateMetrics(labels))).Metric;
+                return _metrics[labels] = CreateMetrics(labels);
             }
         }
     }
