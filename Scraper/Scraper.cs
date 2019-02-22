@@ -136,27 +136,27 @@ namespace csv_prometheus_exporter.Scraper
                 Debug.Assert(fmtEntry is YamlMappingNode);
                 Debug.Assert(((YamlMappingNode) fmtEntry).Children.Count == 1);
                 var name = ((YamlScalarNode) ((YamlMappingNode) fmtEntry).Children.Keys.First()).Value;
-                var tp = ((YamlMappingNode) fmtEntry).Children.Values.First() == null
+                var type = ((YamlMappingNode) fmtEntry).Children.Values.First() == null
                     ? null
                     : ((YamlScalarNode) ((YamlMappingNode) fmtEntry).Children.Values.First()).Value;
 
-                if (tp == null)
+                if (type == null || type == "~")
                 {
                     readers.Add(null);
                     continue;
                 }
 
-                if (tp == "label" && name == "environment")
+                if (type == "label" && name == "environment")
                     throw new Exception("'environment' is a reserved label name");
 
-                if (tp != "label" && (name == "parser_errors" || name == "lines_parsed" || name == "in_bytes"))
+                if (type != "label" && (name == "parser_errors" || name == "lines_parsed" || name == "in_bytes"))
                     throw new Exception($"'{name}' is a reserved metric name");
 
-                if (tp.Contains('+'))
+                if (type.Contains('+'))
                 {
-                    var spl = tp.Split('+');
-                    tp = spl[0].Trim();
-                    if (tp == "label")
+                    var spl = type.Split('+');
+                    type = spl[0].Trim();
+                    if (type == "label")
                         throw new Exception("Labels cannot be used as histograms");
                     var histogramType = spl[1].Trim();
                     if (!histogramBuckets.ContainsKey(histogramType))
@@ -164,12 +164,12 @@ namespace csv_prometheus_exporter.Scraper
                     Startup.Metrics[name] = new MetricBase(name, $"Histogram of {name}", MetricsType.Histogram,
                         histogramBuckets[histogramType]);
                 }
-                else if (tp != "label" && tp != "request_header")
+                else if (type != "label" && type != "request_header")
                 {
                     Startup.Metrics[name] = new MetricBase(name, $"Sum of {name}", MetricsType.Counter);
                 }
 
-                switch (tp)
+                switch (type)
                 {
                     case "number":
                         readers.Add(ValueParsers.NumberReader(name));
@@ -183,6 +183,8 @@ namespace csv_prometheus_exporter.Scraper
                     case "label":
                         readers.Add(ValueParsers.LabelReader(name));
                         break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(type), type, "Invalid metrics type specified");
                 }
             }
 

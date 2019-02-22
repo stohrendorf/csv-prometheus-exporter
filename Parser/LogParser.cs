@@ -40,14 +40,15 @@ namespace csv_prometheus_exporter.Parser
             using (var sshStream = new SSHStream(_stream))
             using (var parser = new CsvReader(sshStream, Encoding.UTF8,
                 new CsvReader.Config
-                    {Quotes = '"', ColumnSeparator = ' ', ReadinBufferSize = 1024, WithQuotes = false}))
+                    {Quotes = '"', ColumnSeparator = ' ', WithQuotes = false}))
             {
                 while (_stream.CanRead)
                 {
                     ParsedMetrics result = null;
                     try
                     {
-                        if (parser.MoveNext()) result = ConvertCsvLine(parser.Current, _labels);
+                        if (parser.MoveNext())
+                            result = ConvertCsvLine(parser.Current, _labels);
                     }
                     catch (ParserError)
                     {
