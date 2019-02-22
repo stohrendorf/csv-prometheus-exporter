@@ -12,7 +12,7 @@ namespace csv_prometheus_exporter.Prometheus
         public Counter([NotNull] MetricBase metricBase, [NotNull] LabelDict labels) : base(metricBase, labels)
         {
             Debug.Assert(metricBase.Type == MetricsType.Counter);
-            _name = ExtendBaseName(QualifiedName(), "_total");
+            _name = QualifiedName();
         }
 
         public override void ExposeTo(StreamWriter stream)

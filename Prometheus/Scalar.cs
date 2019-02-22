@@ -3,7 +3,7 @@ using System.Threading;
 
 namespace csv_prometheus_exporter.Prometheus
 {
-    public struct Scalar
+    public sealed class Scalar
     {
         private double _value;
         private SpinLock _lock;
@@ -91,7 +91,7 @@ namespace csv_prometheus_exporter.Prometheus
         }
     }
 
-    public struct ULongScalar
+    public sealed class ULongScalar
     {
         private ulong _value;
         private SpinLock _lock;

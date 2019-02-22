@@ -34,7 +34,7 @@ namespace csv_prometheus_exporter.Prometheus
                 throw new ArgumentException("Must at least provide one bucket", nameof(buckets));
 
             _counts = Enumerable.Range(0, _buckets.Length).Select(_ => new ULongScalar()).ToArray();
-            _bucketName = QualifiedName("$$$$$");
+            _bucketName = ExtendBaseName(QualifiedName("$$$$$"), "_bucket");
             var name = QualifiedName();
             _sumName = ExtendBaseName(name, "_sum");
             _countName = ExtendBaseName(name, "_count");
@@ -57,7 +57,6 @@ namespace csv_prometheus_exporter.Prometheus
                 if (value <= _buckets[i])
                 {
                     _counts[i].Add(1);
-                    break;
                 }
         }
     }

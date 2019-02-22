@@ -47,6 +47,12 @@ namespace csv_prometheus_exporter.Prometheus
                 throw new ArgumentException("Must provide buckets if type is histogram", nameof(buckets));
             if (type != MetricsType.Histogram && buckets != null)
                 throw new ArgumentException("Must not provide buckets if type is not histogram", nameof(buckets));
+
+            if (type == MetricsType.Counter && !_baseName.EndsWith("_total"))
+            {
+                Logger.Warn($"Counter metric \"{_baseName}\" will be adjusted to have the \"..._total\" suffix");
+                _baseName += "_total";
+            }
         }
 
         public MetricsType Type { get; }
