@@ -147,10 +147,17 @@ namespace csv_prometheus_exporter.Prometheus
             {
                 if (!_metrics.TryGetValue(labels, out var metric))
                     return _metrics[labels] = CreateMetrics(labels);
-                
+
                 metric.LastUpdated = DateTime.Now;
                 return metric;
+            }
+        }
 
+        public void Drop(LabeledMetric metric)
+        {
+            lock (_metricsLock)
+            {
+                _metrics.Remove(metric.Labels);
             }
         }
     }

@@ -40,7 +40,7 @@ namespace csv_prometheus_exporter.Scraper
             return config;
         }
 
-        private static void LoadFromScript(IDictionary<string, Thread> threads, string scrapeConfigScript,
+        private static void LoadFromScript(IDictionary<string, SSHLogScraper> scrapers, string scrapeConfigScript,
             IList<ColumnReader> readers, IDictionary<string, MetricBase> metrics)
         {
             var split = scrapeConfigScript.Split(' ');
@@ -60,10 +60,10 @@ namespace csv_prometheus_exporter.Scraper
             var config = new DeserializerBuilder()
                 .Build()
                 .Deserialize<ScraperConfig>(process.StandardOutput);
-            LoadScrapersConfig(threads, config, readers, metrics);
+            LoadScrapersConfig(scrapers, config, readers, metrics);
         }
 
-        private static HashSet<string> LoadSshScrapersConfig(IDictionary<string, Thread> threads,
+        private static HashSet<string> LoadSshScrapersConfig(IDictionary<string, SSHLogScraper> scrapers,
             SSH config,
             IList<ColumnReader> readers, IDictionary<string, MetricBase> metrics)
         {
@@ -74,7 +74,7 @@ namespace csv_prometheus_exporter.Scraper
                 {
                     var targetId = $"ssh://{host}/{envConfig.File ?? config.File}";
                     ids.Add(targetId);
-                    if (threads.ContainsKey(targetId))
+                    if (scrapers.ContainsKey(targetId))
                         continue;
 
                     var scraper = new SSHLogScraper(
@@ -88,12 +88,12 @@ namespace csv_prometheus_exporter.Scraper
                         envConfig.ConnectTimeout ?? config.ConnectTimeout ?? 30,
                         metrics
                     );
-                    var thread = new Thread(() => scraper.Run());
-                    threads[targetId] = thread;
+                    scraper.Thread = new Thread(() => scraper.Run());
+                    scrapers[targetId] = scraper;
                     Startup.Scrapers[targetId] = scraper;
-                    thread.IsBackground = true;
-                    thread.Name = "scraper:" + targetId;
-                    thread.Start();
+                    scraper.Thread.IsBackground = true;
+                    scraper.Thread.Name = "scraper:" + targetId;
+                    scraper.Thread.Start();
                 }
             }
 
@@ -174,13 +174,13 @@ namespace csv_prometheus_exporter.Scraper
                     true);
         }
 
-        private static void LoadScrapersConfig(IDictionary<string, Thread> threads, ScraperConfig scrapeConfig,
+        private static void LoadScrapersConfig(IDictionary<string, SSHLogScraper> scrapers, ScraperConfig scrapeConfig,
             IList<ColumnReader> readers, IDictionary<string, MetricBase> metrics)
         {
-            var loadedIds = LoadSshScrapersConfig(threads, scrapeConfig.SSH, readers, metrics);
-            foreach (var (threadId, thread) in threads)
-                if (!loadedIds.Contains(threadId))
-                    thread.Abort();
+            var loadedIds = LoadSshScrapersConfig(scrapers, scrapeConfig.SSH, readers, metrics);
+            foreach (var (scraperId, scraper) in scrapers)
+                if (!loadedIds.Contains(scraperId))
+                    scraper.CancellationTokenSource.Cancel();
         }
 
         private static void InitLogging()
@@ -203,8 +203,8 @@ namespace csv_prometheus_exporter.Scraper
                 throw new Exception("Failed to set minimum thread count");
 
             var scrapeConfig = ReadCoreConfig(out var readers);
-            var threads = new Dictionary<string, Thread>();
-            LoadScrapersConfig(threads, scrapeConfig, readers, Startup.Metrics);
+            var scrapers = new Dictionary<string, SSHLogScraper>();
+            LoadScrapersConfig(scrapers, scrapeConfig, readers, Startup.Metrics);
 
             if (scrapeConfig.Script != null)
             {
@@ -212,7 +212,7 @@ namespace csv_prometheus_exporter.Scraper
                 {
                     while (true)
                     {
-                        LoadFromScript(threads, scrapeConfig.Script, readers, Startup.Metrics);
+                        LoadFromScript(scrapers, scrapeConfig.Script, readers, Startup.Metrics);
 
                         if (scrapeConfig.ReloadInterval.HasValue)
                             Thread.Sleep(TimeSpan.FromSeconds(scrapeConfig.ReloadInterval.Value));

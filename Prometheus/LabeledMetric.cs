@@ -12,10 +12,10 @@ namespace csv_prometheus_exporter.Prometheus
         protected LabeledMetric([NotNull] MetricBase metricBase, [NotNull] LabelDict labels)
         {
             _metricBase = metricBase;
-            _labels = labels;
+            Labels = labels;
         }
 
-        private readonly LabelDict _labels;
+        public readonly LabelDict Labels;
 
         private readonly MetricBase _metricBase;
         public bool ExposeAlways => _metricBase.ExposeAlways;
@@ -24,7 +24,7 @@ namespace csv_prometheus_exporter.Prometheus
 
         protected string QualifiedName([CanBeNull] string le = null)
         {
-            return $"{_metricBase.PrefixedName}{{{_labels.ToString(le)}}}";
+            return $"{_metricBase.PrefixedName}{{{Labels.ToString(le)}}}";
         }
 
         public abstract void ExposeTo(StreamWriter stream);
@@ -50,6 +50,11 @@ namespace csv_prometheus_exporter.Prometheus
         protected static string ExtendBaseName(string name, string suffix)
         {
             return new Regex(@"\{").Replace(name, suffix + "{", 1);
+        }
+
+        public void Drop()
+        {
+            _metricBase.Drop(this);
         }
     }
 }

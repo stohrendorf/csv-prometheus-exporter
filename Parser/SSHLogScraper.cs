@@ -14,6 +14,10 @@ namespace csv_prometheus_exporter.Parser
     {
         private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
 
+        public readonly CancellationTokenSource CancellationTokenSource = new CancellationTokenSource();
+
+        public Thread Thread;
+
         private readonly string _environment;
         private readonly string _filename;
         private readonly string _host;
@@ -61,7 +65,7 @@ namespace csv_prometheus_exporter.Parser
             envHostDict.Set("host", _host);
             var connected = _metrics["connected"].WithLabels(envHostDict) as Gauge;
             Debug.Assert(connected != null);
-            while (true)
+            while (!CancellationTokenSource.IsCancellationRequested)
             {
                 try
                 {
@@ -77,8 +81,8 @@ namespace csv_prometheus_exporter.Parser
                             var cmd = client.CreateCommand($"tail -n0 -F \"{_filename}\" 2>/dev/null");
                             var tmp = cmd.BeginExecute();
                             ((PipeStream) cmd.OutputStream).BlockLastReadBuffer = true;
-                            cmd.OutputStream.ReadTimeout = _timeout;
-                            LogParser.ParseFile(cmd.OutputStream, _environment, _readers, _metrics);
+                            LogParser.ParseFile(cmd.OutputStream, _environment, _readers, _metrics, _timeout * 1000,
+                                CancellationTokenSource.Token);
 
                             cmd.EndExecute(tmp);
                             if (cmd.ExitStatus != 0)
@@ -108,7 +112,8 @@ namespace csv_prometheus_exporter.Parser
 
                     connected.Set(0);
                     logger.Info($"Will retry connecting to {_host} in 30 seconds");
-                    Thread.Sleep(TimeSpan.FromSeconds(30));
+                    if(CancellationTokenSource.Token.WaitHandle.WaitOne(TimeSpan.FromSeconds(30)))
+                        break;
                 }
                 finally
                 {
@@ -116,7 +121,7 @@ namespace csv_prometheus_exporter.Parser
                 }
             }
 
-            // ReSharper disable once FunctionNeverReturns
+            connected.Drop();
         }
     }
 }

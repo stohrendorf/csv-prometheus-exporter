@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using csv_prometheus_exporter.Prometheus;
 using CsvParser;
 using NLog;
@@ -35,7 +36,7 @@ namespace csv_prometheus_exporter.Parser
             return result;
         }
 
-        private IEnumerable<ParsedMetrics> ReadAll(char quotes = '"', char columnSeparator = ' ')
+        private IEnumerable<ParsedMetrics> ReadAll(int msTimeout, CancellationToken cancellationToken, char quotes = '"', char columnSeparator = ' ')
         {
             using (var sshStream = new SSHStream(_stream))
             using (var parser = new CsvReader(sshStream, Encoding.UTF8,
@@ -47,7 +48,7 @@ namespace csv_prometheus_exporter.Parser
                     ParsedMetrics result = null;
                     try
                     {
-                        if (parser.MoveNext())
+                        if (parser.MoveNextAsync(cancellationToken).Wait(msTimeout, cancellationToken))
                             result = ConvertCsvLine(parser.Current, _labels);
                     }
                     catch (ParserError)
@@ -66,14 +67,14 @@ namespace csv_prometheus_exporter.Parser
         }
 
         public static void ParseFile(Stream stdout, string environment, IList<ColumnReader> readers,
-            IDictionary<string, MetricBase> metrics)
+            IDictionary<string, MetricBase> metrics, int msTimeout, CancellationToken cancellationToken)
         {
             if(string.IsNullOrEmpty(environment))
                 throw new ArgumentException("Environment must not be empty", nameof(environment));
 
             var envDict = new LabelDict(environment);
 
-            foreach (var entry in new LogParser(stdout, readers, environment).ReadAll())
+            foreach (var entry in new LogParser(stdout, readers, environment).ReadAll(msTimeout, cancellationToken))
             {
                 if (entry == null)
                 {
