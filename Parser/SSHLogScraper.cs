@@ -63,49 +63,57 @@ namespace csv_prometheus_exporter.Parser
             Debug.Assert(connected != null);
             while (true)
             {
-                connected.Set(0);
                 try
                 {
-                    logger.Info($"Trying to establish connection to {_host}");
-                    using (var client = CreateClient())
+                    connected.Set(0);
+                    try
                     {
-                        client.Connect();
-                        connected.Set(1);
-                        logger.Info($"Starting tailing {_filename} on {_host}");
-                        var cmd = client.CreateCommand($"tail -n0 -F \"{_filename}\" 2>/dev/null");
-                        var tmp = cmd.BeginExecute();
-                        ((PipeStream) cmd.OutputStream).BlockLastReadBuffer = true;
-                        LogParser.ParseFile(cmd.OutputStream, _environment, _readers, _metrics);
+                        logger.Info($"Trying to establish connection to {_host}");
+                        using (var client = CreateClient())
+                        {
+                            client.Connect();
+                            connected.Set(1);
+                            logger.Info($"Starting tailing {_filename} on {_host}");
+                            var cmd = client.CreateCommand($"tail -n0 -F \"{_filename}\" 2>/dev/null");
+                            var tmp = cmd.BeginExecute();
+                            ((PipeStream) cmd.OutputStream).BlockLastReadBuffer = true;
+                            cmd.OutputStream.ReadTimeout = _timeout;
+                            LogParser.ParseFile(cmd.OutputStream, _environment, _readers, _metrics);
 
-                        cmd.EndExecute(tmp);
-                        if (cmd.ExitStatus != 0)
-                            logger.Warn($"Tail command failed with exit code {cmd.ExitStatus} on {_host}");
+                            cmd.EndExecute(tmp);
+                            if (cmd.ExitStatus != 0)
+                                logger.Warn($"Tail command failed with exit code {cmd.ExitStatus} on {_host}");
+                        }
                     }
-                }
-                catch (SshOperationTimeoutException ex)
-                {
-                    logger.Error($"Timeout on {_host}: {ex.Message}");
-                }
-                catch (SshConnectionException ex)
-                {
-                    logger.Error($"Failed to connect to {_host}: {ex.Message}");
-                }
-                catch (SshAuthenticationException ex)
-                {
-                    logger.Error($"Failed to authenticate for {_host}: {ex.Message}");
-                }
-                catch (SocketException ex)
-                {
-                    logger.Error($"Error on socket for {_host} (check firewall?): {ex.Message}");
-                }
-                catch (Exception ex)
-                {
-                    logger.Fatal(ex, $"Unhandled exception on {_host}");
-                }
+                    catch (SshOperationTimeoutException ex)
+                    {
+                        logger.Error($"Timeout on {_host}: {ex.Message}");
+                    }
+                    catch (SshConnectionException ex)
+                    {
+                        logger.Error($"Failed to connect to {_host}: {ex.Message}");
+                    }
+                    catch (SshAuthenticationException ex)
+                    {
+                        logger.Error($"Failed to authenticate for {_host}: {ex.Message}");
+                    }
+                    catch (SocketException ex)
+                    {
+                        logger.Error($"Error on socket for {_host} (check firewall?): {ex.Message}");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Fatal(ex, $"Unhandled exception on {_host}: {ex.Message}");
+                    }
 
-                connected.Set(0);
-                logger.Info($"Will retry connecting to {_host} in 30 seconds");
-                Thread.Sleep(TimeSpan.FromSeconds(30));
+                    connected.Set(0);
+                    logger.Info($"Will retry connecting to {_host} in 30 seconds");
+                    Thread.Sleep(TimeSpan.FromSeconds(30));
+                }
+                finally
+                {
+                    connected.Set(0);
+                }
             }
 
             // ReSharper disable once FunctionNeverReturns
