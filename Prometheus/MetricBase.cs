@@ -145,13 +145,12 @@ namespace csv_prometheus_exporter.Prometheus
         {
             lock (_metricsLock)
             {
-                if (_metrics.TryGetValue(labels, out var metric))
-                {
-                    metric.LastUpdated = DateTime.Now;
-                    return metric;
-                }
+                if (!_metrics.TryGetValue(labels, out var metric))
+                    return _metrics[labels] = CreateMetrics(labels);
+                
+                metric.LastUpdated = DateTime.Now;
+                return metric;
 
-                return _metrics[labels] = CreateMetrics(labels);
             }
         }
     }

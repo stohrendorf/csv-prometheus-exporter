@@ -22,7 +22,7 @@ namespace csv_prometheus_exporter.Scraper
 {
     internal static class Scraper
     {
-        private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
+        private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
 
         private static void ReadCoreConfig(out IList<ColumnReader> readers, out string scrapeConfigScript,
             out int? configReloadInterval, out YamlMappingNode scrapeConfig)
@@ -140,14 +140,15 @@ namespace csv_prometheus_exporter.Scraper
                     ? null
                     : ((YamlScalarNode) ((YamlMappingNode) fmtEntry).Children.Values.First()).Value;
 
-                if (type == null || type == "~")
+                switch (type)
                 {
-                    readers.Add(null);
-                    continue;
+                    case null:
+                    case "~":
+                        readers.Add(null);
+                        continue;
+                    case "label" when name == "environment":
+                        throw new Exception("'environment' is a reserved label name");
                 }
-
-                if (type == "label" && name == "environment")
-                    throw new Exception("'environment' is a reserved label name");
 
                 if (type != "label" && (name == "parser_errors" || name == "lines_parsed"))
                     throw new Exception($"'{name}' is a reserved metric name");
@@ -209,7 +210,7 @@ namespace csv_prometheus_exporter.Scraper
             ServicePointManager.DefaultConnectionLimit = 1;
 
             ThreadPool.GetMinThreads(out var a, out var b);
-            Logger.Debug($"Current min threads: {a}, {b}");
+            logger.Debug($"Current min threads: {a}, {b}");
             if (!ThreadPool.SetMinThreads(1024, 128))
                 throw new Exception("Failed to set minimum thread count");
 

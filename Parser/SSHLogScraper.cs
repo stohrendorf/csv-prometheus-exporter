@@ -12,7 +12,7 @@ namespace csv_prometheus_exporter.Parser
 {
     public sealed class SSHLogScraper
     {
-        private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
+        private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
 
         private readonly string _environment;
         private readonly string _filename;
@@ -56,7 +56,7 @@ namespace csv_prometheus_exporter.Parser
 
         public void Run()
         {
-            Logger.Info($"Scraper thread for {_filename} on {_host} became alive");
+            logger.Info($"Scraper thread for {_filename} on {_host} became alive");
             var envHostDict = new LabelDict(_environment);
             envHostDict.Set("host", _host);
             var connected = _metrics["connected"].WithLabels(envHostDict) as Gauge;
@@ -66,12 +66,12 @@ namespace csv_prometheus_exporter.Parser
                 connected.Set(0);
                 try
                 {
-                    Logger.Info($"Trying to establish connection to {_host}");
+                    logger.Info($"Trying to establish connection to {_host}");
                     using (var client = CreateClient())
                     {
                         client.Connect();
                         connected.Set(1);
-                        Logger.Info($"Starting tailing {_filename} on {_host}");
+                        logger.Info($"Starting tailing {_filename} on {_host}");
                         var cmd = client.CreateCommand($"tail -n0 -F \"{_filename}\" 2>/dev/null");
                         var tmp = cmd.BeginExecute();
                         ((PipeStream) cmd.OutputStream).BlockLastReadBuffer = true;
@@ -79,32 +79,32 @@ namespace csv_prometheus_exporter.Parser
 
                         cmd.EndExecute(tmp);
                         if (cmd.ExitStatus != 0)
-                            Logger.Warn($"Tail command failed with exit code {cmd.ExitStatus} on {_host}");
+                            logger.Warn($"Tail command failed with exit code {cmd.ExitStatus} on {_host}");
                     }
                 }
                 catch (SshOperationTimeoutException ex)
                 {
-                    Logger.Error($"Timeout on {_host}: {ex.Message}");
+                    logger.Error($"Timeout on {_host}: {ex.Message}");
                 }
                 catch (SshConnectionException ex)
                 {
-                    Logger.Error($"Failed to connect to {_host}: {ex.Message}");
+                    logger.Error($"Failed to connect to {_host}: {ex.Message}");
                 }
                 catch (SshAuthenticationException ex)
                 {
-                    Logger.Error($"Failed to authenticate for {_host}: {ex.Message}");
+                    logger.Error($"Failed to authenticate for {_host}: {ex.Message}");
                 }
                 catch (SocketException ex)
                 {
-                    Logger.Error($"Error on socket for {_host} (check firewall?): {ex.Message}");
+                    logger.Error($"Error on socket for {_host} (check firewall?): {ex.Message}");
                 }
                 catch (Exception ex)
                 {
-                    Logger.Fatal(ex, $"Unhandled exception on {_host}");
+                    logger.Fatal(ex, $"Unhandled exception on {_host}");
                 }
 
                 connected.Set(0);
-                Logger.Info($"Will retry connecting to {_host} in 30 seconds");
+                logger.Info($"Will retry connecting to {_host} in 30 seconds");
                 Thread.Sleep(TimeSpan.FromSeconds(30));
             }
 
