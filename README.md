@@ -30,18 +30,19 @@ script: python3 some-inventory-script.py # Output must be the the same as the ss
 reload-interval: 30 # Optional; seconds between attempts to execute the script above.
 
 ssh:
-  # Provide some default settings; these can be overriden per environment.
-  file: /var/log/some-csv-file # tail -f on this
-  user: log-reader # SSH user
-  password: secure123
-  pkey: /home/log-reader-id-rsa # private key file (optional)
+  connection: # Provide some default settings; these can be overriden per environment.
+    file: /var/log/some-csv-file # tail -f on this
+    user: log-reader # SSH user
+    password: secure123
+    pkey: /home/log-reader-id-rsa # private key file (optional)
   environments:
     environmentA:
       hosts: [...]
     environmentB:
       hosts: [...]
-      file: /var/log/some-other-csv-file
-      user: someotheruser
+      connection:
+        file: /var/log/some-other-csv-file
+        user: someotheruser
 ```
 
 The supported `type` values are:

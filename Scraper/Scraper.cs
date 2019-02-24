@@ -64,28 +64,27 @@ namespace csv_prometheus_exporter.Scraper
         }
 
         private static HashSet<string> LoadSshScrapersConfig(IDictionary<string, SSHLogScraper> scrapers,
-            SSH config,
-            IList<ColumnReader> readers, IDictionary<string, MetricBase> metrics)
+            SSH config, IList<ColumnReader> readers, IDictionary<string, MetricBase> metrics)
         {
             var ids = new HashSet<string>();
             foreach (var (envName, envConfig) in config.Environments)
             {
                 foreach (var host in envConfig.Hosts)
                 {
-                    var targetId = $"ssh://{host}/{envConfig.File ?? config.File}";
+                    var targetId = $"ssh://{host}/{envConfig.ConnectionSettings?.File ?? config.ConnectionSettings.File}";
                     ids.Add(targetId);
                     if (scrapers.ContainsKey(targetId))
                         continue;
 
                     var scraper = new SSHLogScraper(
-                        envConfig.File ?? config.File,
+                        envConfig.ConnectionSettings?.File ?? config.ConnectionSettings.File,
                         envName,
                         readers,
                         host,
-                        envConfig.User ?? config.User,
-                        envConfig.Password ?? config.Password,
-                        envConfig.PKey ?? config.PKey,
-                        envConfig.ConnectTimeout ?? config.ConnectTimeout ?? 30,
+                        envConfig.ConnectionSettings?.User ?? config.ConnectionSettings.User,
+                        envConfig.ConnectionSettings?.Password ?? config.ConnectionSettings.Password,
+                        envConfig.ConnectionSettings?.PKey ?? config.ConnectionSettings.PKey,
+                        envConfig.ConnectionSettings?.ConnectTimeout ?? config.ConnectionSettings.ConnectTimeout ?? 30,
                         metrics
                     );
                     scraper.Thread = new Thread(() => scraper.Run());

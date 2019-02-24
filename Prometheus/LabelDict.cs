@@ -27,7 +27,7 @@ namespace csv_prometheus_exporter.Prometheus
             Environment = environment;
         }
 
-        public void Set(string key, string value)
+        public void Set([NotNull] string key, [NotNull] string value)
         {
             for (var i = 0; i < _labels.Count; ++i)
                 if (_labels[i].Key == key)
@@ -40,12 +40,12 @@ namespace csv_prometheus_exporter.Prometheus
         }
 
         [CanBeNull]
-        public string Get(string key)
+        public string Get([NotNull] string key)
         {
             return _labels.Where(_ => _.Key == key).Select(_ => _.Value).SingleOrDefault();
         }
 
-        private bool Equals(LabelDict other)
+        private bool Equals([NotNull] LabelDict other)
         {
             if (Environment != other.Environment)
                 return false;

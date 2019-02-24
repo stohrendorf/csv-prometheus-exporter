@@ -3,11 +3,8 @@ using YamlDotNet.Serialization;
 
 namespace csv_prometheus_exporter.Scraper.Config
 {
-    public class Environment
+    public class ConnectionSettings
     {
-        [YamlMember(Alias = "hosts", ApplyNamingConventions = false)]
-        public List<string> Hosts { get; set; }
-
         [YamlMember(Alias = "file", ApplyNamingConventions = false)]
         public string File { get; set; } = null;
 
@@ -27,27 +24,22 @@ namespace csv_prometheus_exporter.Scraper.Config
         public int? ConnectTimeout { get; set; } = null;
     }
 
+    public class Environment
+    {
+        [YamlMember(Alias = "hosts", ApplyNamingConventions = false)]
+        public List<string> Hosts { get; set; }
+
+        [YamlMember(Alias = "connection", ApplyNamingConventions = false)]
+        public ConnectionSettings ConnectionSettings { get; set; }
+    }
+
     public class SSH
     {
         [YamlMember(Alias = "environments", ApplyNamingConventions = false)]
         public Dictionary<string, Environment> Environments { get; set; }
 
-        [YamlMember(Alias = "file", ApplyNamingConventions = false)]
-        public string File { get; set; } = null;
-
-
-        [YamlMember(Alias = "user", ApplyNamingConventions = false)]
-        public string User { get; set; } = null;
-
-
-        [YamlMember(Alias = "password", ApplyNamingConventions = false)]
-        public string Password { get; set; } = null;
-
-        [YamlMember(Alias = "pkey", ApplyNamingConventions = false)]
-        public string PKey { get; set; } = null;
-
-        [YamlMember(Alias = "connect-timeout", ApplyNamingConventions = false)]
-        public int? ConnectTimeout { get; set; } = null;
+        [YamlMember(Alias = "connection", ApplyNamingConventions = false)]
+        public ConnectionSettings ConnectionSettings { get; set; }
     }
 
     public class Global

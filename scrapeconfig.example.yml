@@ -10,17 +10,19 @@ global:
   - body_bytes_sent: clf_number  # maps a single dash to zero, otherwise behaves like "number"
 
 ssh:
-  user: random.guy
-  password: password123
-  file: /var/log/apache/access_log.txt
-  connect-timeout: 5  # seconds between connection attempts to hosts
+  connection:
+    user: random.guy
+    password: password123
+    file: /var/log/apache/access_log.txt
+    connect-timeout: 5  # seconds between connection attempts to hosts
   environments:
     home:
       hosts:
       - 127.0.0.1
     home-2:
-      user: another.guy # can be overridden per environment as needed
-      # password: supasecure
-      file: /var/log/apache/access_log.txt
-      connect-timeout: 25
+      connection: # can be overridden per environment as needed
+        user: another.guy
+        # password: supasecure
+        file: /var/log/apache/access_log.txt
+        connect-timeout: 25
       hosts: [nirvana] # a single host doesn't need to be wrapped in a list
