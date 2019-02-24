@@ -25,11 +25,13 @@ namespace csv_prometheus_exporter.Parser
         private readonly string _password;
         private readonly string _pkey;
         private readonly IList<ColumnReader> _readers;
-        private readonly int _timeout;
+        private readonly int _connectTimeout;
+        private readonly int _readTimeoutMs;
         private readonly string _username;
 
         public SSHLogScraper(string filename, string environment, IList<ColumnReader> readers, string host, string user,
-            string password, string pkey, int connectTimeout, IDictionary<string, MetricBase> metrics)
+            string password, string pkey, int connectTimeout, int readTimeoutMs,
+            IDictionary<string, MetricBase> metrics)
         {
             _filename = filename;
             _host = host;
@@ -38,7 +40,8 @@ namespace csv_prometheus_exporter.Parser
             _pkey = pkey;
             _environment = environment;
             _readers = readers;
-            _timeout = connectTimeout;
+            _connectTimeout = connectTimeout;
+            _readTimeoutMs = readTimeoutMs;
             _metrics = metrics;
         }
 
@@ -54,7 +57,7 @@ namespace csv_prometheus_exporter.Parser
                 connInfo = new PrivateKeyConnectionInfo(_host, 22, _username,
                     new PrivateKeyFile(_pkey));
 
-            connInfo.Timeout = TimeSpan.FromSeconds(_timeout);
+            connInfo.Timeout = TimeSpan.FromSeconds(_connectTimeout);
             return new SshClient(connInfo);
         }
 
@@ -81,7 +84,7 @@ namespace csv_prometheus_exporter.Parser
                             var cmd = client.CreateCommand($"tail -n0 -F \"{_filename}\" 2>/dev/null");
                             var tmp = cmd.BeginExecute();
                             ((PipeStream) cmd.OutputStream).BlockLastReadBuffer = true;
-                            LogParser.ParseFile(cmd.OutputStream, _environment, _readers, _metrics, _timeout * 1000,
+                            LogParser.ParseFile(cmd.OutputStream, _environment, _readers, _metrics, _readTimeoutMs,
                                 CancellationTokenSource.Token);
 
                             cmd.EndExecute(tmp);
@@ -112,7 +115,7 @@ namespace csv_prometheus_exporter.Parser
 
                     connected.Set(0);
                     logger.Info($"Will retry connecting to {_host} in 30 seconds");
-                    if(CancellationTokenSource.Token.WaitHandle.WaitOne(TimeSpan.FromSeconds(30)))
+                    if (CancellationTokenSource.Token.WaitHandle.WaitOne(TimeSpan.FromSeconds(30)))
                         break;
                 }
                 finally

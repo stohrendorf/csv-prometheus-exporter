@@ -15,7 +15,6 @@ using NLog;
 using NLog.Config;
 using NLog.Targets;
 using NLog.Web;
-using YamlDotNet.RepresentationModel;
 using YamlDotNet.Serialization;
 using Environment = System.Environment;
 using ILogger = NLog.ILogger;
@@ -71,7 +70,8 @@ namespace csv_prometheus_exporter.Scraper
             {
                 foreach (var host in envConfig.Hosts)
                 {
-                    var targetId = $"ssh://{host}/{envConfig.ConnectionSettings?.File ?? config.ConnectionSettings.File}";
+                    var targetId =
+                        $"ssh://{host}/{envConfig.ConnectionSettings?.File ?? config.ConnectionSettings.File}";
                     ids.Add(targetId);
                     if (scrapers.ContainsKey(targetId))
                         continue;
@@ -85,6 +85,8 @@ namespace csv_prometheus_exporter.Scraper
                         envConfig.ConnectionSettings?.Password ?? config.ConnectionSettings.Password,
                         envConfig.ConnectionSettings?.PKey ?? config.ConnectionSettings.PKey,
                         envConfig.ConnectionSettings?.ConnectTimeout ?? config.ConnectionSettings.ConnectTimeout ?? 30,
+                        envConfig.ConnectionSettings?.ReadTimeoutMs ??
+                        config.ConnectionSettings.ReadTimeoutMs ?? 60 * 1000,
                         metrics
                     );
                     scraper.Thread = new Thread(() => scraper.Run());
@@ -107,11 +109,9 @@ namespace csv_prometheus_exporter.Scraper
                 foreach (var (histogramName, buckets) in globalConfig.Histograms)
                 {
                     if (buckets == null || buckets.Count == 0)
-                        histogramBuckets[histogramName] =
-                            Histogram.DefaultBuckets;
+                        histogramBuckets[histogramName] = Histogram.DefaultBuckets;
                     else
-                        histogramBuckets[histogramName] =
-                            buckets.Cast<YamlScalarNode>().Select(x => double.Parse(x.Value)).ToArray();
+                        histogramBuckets[histogramName] = buckets.ToArray();
                 }
 
             Startup.Metrics.Clear();
@@ -122,7 +122,7 @@ namespace csv_prometheus_exporter.Scraper
                     readers.Add(null);
                     continue;
                 }
-                
+
                 if (dict.Count != 1)
                     throw new Exception();
 

@@ -1,5 +1,9 @@
 using System.Collections.Generic;
 using YamlDotNet.Serialization;
+// ReSharper disable ClassNeverInstantiated.Global
+// ReSharper disable CollectionNeverUpdated.Global
+// ReSharper disable UnusedAutoPropertyAccessor.Global
+// ReSharper disable AutoPropertyCanBeMadeGetOnly.Global
 
 namespace csv_prometheus_exporter.Scraper.Config
 {
@@ -22,6 +26,9 @@ namespace csv_prometheus_exporter.Scraper.Config
 
         [YamlMember(Alias = "connect-timeout", ApplyNamingConventions = false)]
         public int? ConnectTimeout { get; set; } = null;
+
+        [YamlMember(Alias = "read-timeout-ms", ApplyNamingConventions = false)]
+        public int? ReadTimeoutMs { get; set; } = null;
     }
 
     public class Environment

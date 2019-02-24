@@ -35,6 +35,8 @@ ssh:
     user: log-reader # SSH user
     password: secure123
     pkey: /home/log-reader-id-rsa # private key file (optional)
+    connect-timeout: 5 # (optional, defaults to 30 seconds)
+    read-timeout-ms: 1000 # (optional, defaults to 60 seconds)
   environments:
     environmentA:
       hosts: [...]

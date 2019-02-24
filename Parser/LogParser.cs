@@ -122,7 +122,7 @@ namespace csv_prometheus_exporter.Parser
     public class LogParserTest
     {
         private const int ReadSleepSeconds = 10;
-        private readonly TimeSpan StepDelay = TimeSpan.FromMilliseconds(100);
+        private static readonly TimeSpan stepDelay = TimeSpan.FromMilliseconds(100);
 
         private static IDictionary<string, MetricBase> CreateMetricsDict()
         {
@@ -177,10 +177,10 @@ namespace csv_prometheus_exporter.Parser
             var task = Task.Run(
                 () => LogParser.ParseFile(streamMock.Object, "env", readers, CreateMetricsDict(), int.MaxValue,
                     tokenSource.Token), tokenSource.Token);
-            Thread.Sleep(StepDelay);
+            Thread.Sleep(stepDelay);
             Assert.That(task.Status, Is.EqualTo(TaskStatus.Running));
             tokenSource.Cancel();
-            Thread.Sleep(StepDelay);
+            Thread.Sleep(stepDelay);
             Assert.That(task.Status, Is.EqualTo(TaskStatus.RanToCompletion));
         }
     }
