@@ -65,7 +65,7 @@ namespace csv_prometheus_exporter.Scraper
                 metric.Add(((DateTimeOffset) process.StartTime).ToUnixTimeSeconds());
                 meta.ExposeTo(textStream);
 
-                meta = new MetricBase("scraper_active_metrics", "Currently exposed (active) metrics",
+                meta = new MetricBase("exposed_metrics", "Currently exposed (active) metrics",
                     MetricsType.Gauge);
                 metric = meta.WithLabels(new LabelDict(Environment.MachineName));
                 metric.Add(totalExposed);
