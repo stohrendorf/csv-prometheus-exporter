@@ -1,0 +1,4 @@
+container:
+  image: microsoft/dotnet:sdk
+task:
+  tests_script: dotnet restore && dotnet test

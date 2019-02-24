@@ -1,5 +1,7 @@
 # CSV Prometheus Exporter
 
+[![Build Status](https://api.cirrus-ci.com/github/stohrendorf/csv-prometheus-exporter.svg)](https://cirrus-ci.com/github/stohrendorf/csv-prometheus-exporter)
+
 A simple exporter for CSV-based files[*].  Basically runs "tail -f" on remote files over SSH and aggregates
 them into Prometheus compatible metrics. It is capable of processing at least 100 servers with thousands of
 requests per second on a single core with a response time below 2 seconds.
