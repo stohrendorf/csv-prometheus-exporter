@@ -122,7 +122,7 @@ namespace csv_prometheus_exporter.Parser
     public class LogParserTest
     {
         private const int ReadSleepSeconds = 10;
-        private static readonly TimeSpan stepDelay = TimeSpan.FromMilliseconds(100);
+        private static readonly TimeSpan stepDelay = TimeSpan.FromMilliseconds(300);
 
         private static IDictionary<string, MetricBase> CreateMetricsDict()
         {
