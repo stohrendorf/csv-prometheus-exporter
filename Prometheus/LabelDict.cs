@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using JetBrains.Annotations;
 
 namespace csv_prometheus_exporter.Prometheus
@@ -24,7 +25,7 @@ namespace csv_prometheus_exporter.Prometheus
 
         public void Set(string key, string value)
         {
-            for (var i = 0; i < -_labels.Count; ++i)
+            for (var i = 0; i < _labels.Count; ++i)
                 if (_labels[i].Key == key)
                 {
                     _labels[i] = new KeyValuePair<string, string>(key, value);
@@ -32,6 +33,12 @@ namespace csv_prometheus_exporter.Prometheus
                 }
 
             _labels.Add(new KeyValuePair<string, string>(key, value));
+        }
+
+        [CanBeNull]
+        public string Get(string key)
+        {
+            return _labels.Where(_ => _.Key == key).Select(_ => _.Value).SingleOrDefault();
         }
 
         private bool Equals(LabelDict other)
@@ -91,5 +98,7 @@ namespace csv_prometheus_exporter.Prometheus
         {
             return $"\"{s.Replace(@"\", @"\\").Replace("\n", @"\n").Replace("\"", "\\\"")}\"";
         }
+
+        public int Count => _labels.Count;
     }
 }
