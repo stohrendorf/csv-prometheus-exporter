@@ -8,19 +8,25 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="FastCsvParser" Version="1.1.1" />
-        <PackageReference Include="JetBrains.Annotations" Version="2018.3.0" />
-        <PackageReference Include="Microsoft.AspNetCore.App" />
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="15.9.0" />
-        <PackageReference Include="Moq" Version="4.10.1" />
-        <PackageReference Include="NLog" Version="4.5.11" />
-        <PackageReference Include="NLog.Extensions.Logging" Version="1.4.0" />
-        <PackageReference Include="NLog.Web.AspNetCore" Version="4.8.0" />
-        <PackageReference Include="NUnit" Version="3.11.0" />
-        <PackageReference Include="NUnit.ConsoleRunner" Version="3.9.0" />
-        <PackageReference Include="NUnit3TestAdapter" Version="3.13.0" />
-        <PackageReference Include="SSH.NET" Version="2016.1.0" />
-        <PackageReference Include="YamlDotNet" Version="5.4.0" />
+        <Content Include="nlog.config">
+            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        </Content>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="FastCsvParser" Version="1.1.1"/>
+        <PackageReference Include="JetBrains.Annotations" Version="2018.3.0"/>
+        <PackageReference Include="Microsoft.AspNetCore.App"/>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="15.9.0"/>
+        <PackageReference Include="Moq" Version="4.10.1"/>
+        <PackageReference Include="NLog" Version="4.5.11"/>
+        <PackageReference Include="NLog.Extensions.Logging" Version="1.4.0"/>
+        <PackageReference Include="NLog.Web.AspNetCore" Version="4.8.0"/>
+        <PackageReference Include="NUnit" Version="3.11.0"/>
+        <PackageReference Include="NUnit.ConsoleRunner" Version="3.9.0"/>
+        <PackageReference Include="NUnit3TestAdapter" Version="3.13.0"/>
+        <PackageReference Include="SSH.NET" Version="2016.1.0"/>
+        <PackageReference Include="YamlDotNet" Version="5.4.0"/>
     </ItemGroup>
 
 </Project>

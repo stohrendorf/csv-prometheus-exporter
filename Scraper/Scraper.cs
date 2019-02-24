@@ -12,13 +12,10 @@ using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
 using NLog;
-using NLog.Config;
-using NLog.Targets;
 using NLog.Web;
 using YamlDotNet.Serialization;
 using Environment = System.Environment;
 using ILogger = NLog.ILogger;
-using LogLevel = NLog.LogLevel;
 
 namespace csv_prometheus_exporter.Scraper
 {
@@ -182,18 +179,9 @@ namespace csv_prometheus_exporter.Scraper
                     scraper.CancellationTokenSource.Cancel();
         }
 
-        private static void InitLogging()
-        {
-            var config = new LoggingConfiguration();
-            var console = new ColoredConsoleTarget("console");
-            config.AddTarget(console);
-            config.AddRule(LogLevel.Info, LogLevel.Fatal, console);
-            LogManager.Configuration = config;
-        }
-
         private static void Main(string[] args)
         {
-            InitLogging();
+            NLogBuilder.ConfigureNLog("nlog.config");
             ServicePointManager.DefaultConnectionLimit = 1;
 
             ThreadPool.GetMinThreads(out var a, out var b);
