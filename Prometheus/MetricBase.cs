@@ -18,7 +18,20 @@ namespace csv_prometheus_exporter.Prometheus
     {
         private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
 
-        public static string GlobalPrefix = null;
+        private static string _globalPrefix = null;
+
+        public static string GlobalPrefix
+        {
+            get => _globalPrefix;
+
+            set
+            {
+                if (!string.IsNullOrEmpty(value) && !IsValidMetricsBasename(value))
+                    throw new ArgumentException("Invalid prefix", nameof(value));
+                _globalPrefix = value;
+            }
+        }
+
         public static int TTL = 60;
 
         /// <summary>
@@ -49,9 +62,7 @@ namespace csv_prometheus_exporter.Prometheus
         public MetricBase([NotNull] string baseName, [NotNull] string help, MetricsType type,
             [CanBeNull] double[] buckets = null, bool exposeAlways = false)
         {
-            if (!string.IsNullOrEmpty(GlobalPrefix) && !IsValidMetricsBasename($"{GlobalPrefix}:{baseName}"))
-                throw new ArgumentException("Invalid metrics name", nameof(baseName));
-            if (string.IsNullOrEmpty(GlobalPrefix) && !IsValidMetricsBasename(baseName))
+            if (!IsValidMetricsBasename(baseName))
                 throw new ArgumentException("Invalid metrics name", nameof(baseName));
 
             _baseName = baseName;
@@ -85,8 +96,7 @@ namespace csv_prometheus_exporter.Prometheus
         private static bool IsValidMetricsBasename([NotNull] string name)
         {
             return new Regex("^[a-zA-Z0-9:_]+$").IsMatch(name)
-                   && !new[] {"_sum", "_count", "_bucket", "_total"}.Any(name.EndsWith)
-                   && !new[] {"process_", "scrape_"}.Any(name.StartsWith);
+                   && !new[] {"_sum", "_count", "_bucket", "_total"}.Any(name.EndsWith);
         }
 
         public int ExposeTo([NotNull] StreamWriter stream)
