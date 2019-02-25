@@ -48,14 +48,23 @@ namespace csv_prometheus_exporter.Scraper
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
-            foreach (var arg in split.Skip(1)) startInfo.ArgumentList.Add(arg);
+            foreach (var arg in split.Skip(1))
+                startInfo.ArgumentList.Add(arg);
 
             var process = new Process {StartInfo = startInfo};
             process.Start();
             process.WaitForExit();
+            var stdout = process.StandardOutput.ReadToEnd();
             var config = new DeserializerBuilder()
                 .Build()
-                .Deserialize<ScraperConfig>(process.StandardOutput);
+                .Deserialize<ScraperConfig>(stdout);
+            if (config == null)
+            {
+                logger.Error("Failed to parse inventory script output:");
+                logger.Error(stdout);
+                return;
+            }
+
             LoadScrapersConfig(scrapers, config, readers, metrics);
         }
 
@@ -63,6 +72,9 @@ namespace csv_prometheus_exporter.Scraper
             SSH config, IList<ColumnReader> readers, IDictionary<string, MetricBase> metrics)
         {
             var ids = new HashSet<string>();
+            if (config?.Environments == null)
+                return ids;
+
             foreach (var (envName, envConfig) in config.Environments)
             {
                 foreach (var host in envConfig.Hosts)
