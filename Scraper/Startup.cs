@@ -80,6 +80,10 @@ namespace csv_prometheus_exporter.Scraper
                 foreach (var aggregatedMetric in Metrics.Values)
                     totalExposed += aggregatedMetric.ExposeTo(textStream);
 
+                totalExposed += MetricBase.Connected.ExposeTo(textStream);
+                totalExposed += MetricBase.LinesParsed.ExposeTo(textStream);
+                totalExposed += MetricBase.ParserErrors.ExposeTo(textStream);
+
                 ExposeProcessMetrics(textStream, totalExposed);
             }
 
