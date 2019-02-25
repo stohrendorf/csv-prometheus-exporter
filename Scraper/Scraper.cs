@@ -162,9 +162,10 @@ namespace csv_prometheus_exporter.Scraper
             MetricBase.TTL = globalConfig.TTL;
 
             Startup.Metrics["parser_errors"] =
-                new MetricBase("parser_errors", "Number of lines which could not be parsed", MetricsType.Counter);
+                new MetricBase("parser_errors", "Number of lines which could not be parsed", MetricsType.Counter, null,
+                    true);
             Startup.Metrics["lines_parsed"] =
-                new MetricBase("lines_parsed", "Number of successfully parsed lines", MetricsType.Counter);
+                new MetricBase("lines_parsed", "Number of successfully parsed lines", MetricsType.Counter, null, true);
             Startup.Metrics["connected"] =
                 new MetricBase("connected", "Whether this target is currently being scraped", MetricsType.Gauge, null,
                     true);
