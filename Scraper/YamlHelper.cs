@@ -8,9 +8,9 @@ namespace csv_prometheus_exporter.Scraper
     {
         public static string String(this YamlMappingNode node, string key)
         {
-            if (node.Children.TryGetValue(new YamlScalarNode(key), out var n))
-                return ((YamlScalarNode) n).Value;
-            return null;
+            return node.Children.TryGetValue(new YamlScalarNode(key), out var n)
+                ? ((YamlScalarNode) n).Value
+                : null;
         }
 
         public static int? Int(this YamlMappingNode node, string key)

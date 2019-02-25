@@ -1,5 +1,7 @@
 # CSV Prometheus Exporter
 
+[![Build Status](https://api.cirrus-ci.com/github/stohrendorf/csv-prometheus-exporter.svg)](https://cirrus-ci.com/github/stohrendorf/csv-prometheus-exporter)
+
 A simple exporter for CSV-based files[*].  Basically runs "tail -f" on remote files over SSH and aggregates
 them into Prometheus compatible metrics. It is capable of processing at least 100 servers with thousands of
 requests per second on a single core with a response time below 2 seconds.
@@ -28,18 +30,21 @@ script: python3 some-inventory-script.py # Output must be the the same as the ss
 reload-interval: 30 # Optional; seconds between attempts to execute the script above.
 
 ssh:
-  # Provide some default settings; these can be overriden per environment.
-  file: /var/log/some-csv-file # tail -f on this
-  user: log-reader # SSH user
-  password: secure123
-  pkey: /home/log-reader-id-rsa # private key file (optional)
+  connection: # Provide some default settings; these can be overriden per environment.
+    file: /var/log/some-csv-file # tail -f on this
+    user: log-reader # SSH user
+    password: secure123
+    pkey: /home/log-reader-id-rsa # private key file (optional)
+    connect-timeout: 5 # (optional, defaults to 30 seconds)
+    read-timeout-ms: 1000 # (optional, defaults to 60 seconds)
   environments:
     environmentA:
       hosts: [...]
     environmentB:
       hosts: [...]
-      file: /var/log/some-other-csv-file
-      user: someotheruser
+      connection:
+        file: /var/log/some-other-csv-file
+        user: someotheruser
 ```
 
 The supported `type` values are:

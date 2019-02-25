@@ -16,7 +16,7 @@ namespace csv_prometheus_exporter.Scraper
 {
     public class Startup
     {
-        private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
+        private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
 
         public static readonly IDictionary<string, SSHLogScraper> Scrapers =
             new ConcurrentDictionary<string, SSHLogScraper>();
@@ -65,7 +65,7 @@ namespace csv_prometheus_exporter.Scraper
                 metric.Add(((DateTimeOffset) process.StartTime).ToUnixTimeSeconds());
                 meta.ExposeTo(textStream);
 
-                meta = new MetricBase("scraper_active_metrics", "Currently exposed (active) metrics",
+                meta = new MetricBase("exposed_metrics", "Currently exposed (active) metrics",
                     MetricsType.Gauge);
                 metric = meta.WithLabels(new LabelDict(Environment.MachineName));
                 metric.Add(totalExposed);
@@ -73,7 +73,7 @@ namespace csv_prometheus_exporter.Scraper
             }
 
             stopWatch.Stop();
-            Logger.Info($"Write active metrics to response stream: {stopWatch.Elapsed}");
+            logger.Info($"Write active metrics to response stream: {stopWatch.Elapsed}");
         }
 
         // This method gets called by the runtime. Use this method

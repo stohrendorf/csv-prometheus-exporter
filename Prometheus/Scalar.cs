@@ -62,7 +62,7 @@ namespace csv_prometheus_exporter.Prometheus
             }
         }
 
-        public bool Equals(Scalar other)
+        private bool Equals(Scalar other)
         {
             return _value.Equals(other._value);
         }
@@ -123,21 +123,6 @@ namespace csv_prometheus_exporter.Prometheus
             }
         }
 
-        public void Set(ulong d)
-        {
-            var gotLock = false;
-            try
-            {
-                _lock.Enter(ref gotLock);
-                _value = d;
-            }
-            finally
-            {
-                if (gotLock)
-                    _lock.Exit();
-            }
-        }
-
         public ulong Get()
         {
             var gotLock = false;
@@ -153,7 +138,7 @@ namespace csv_prometheus_exporter.Prometheus
             }
         }
 
-        public bool Equals(ULongScalar other)
+        private bool Equals(ULongScalar other)
         {
             return _value.Equals(other._value);
         }
