@@ -66,7 +66,7 @@ namespace csv_prometheus_exporter.Parser
             logger.Info($"Scraper thread for {_filename} on {_host} became alive");
             var envHostDict = new LabelDict(_environment);
             envHostDict.Set("host", _host);
-            var connected = _metrics["connected"].WithLabels(envHostDict) as Gauge;
+            var connected = MetricBase.Connected.WithLabels(envHostDict) as Gauge;
             Debug.Assert(connected != null);
             try
             {

@@ -47,7 +47,7 @@ namespace csv_prometheus_exporter.Prometheus
             }
         }
 
-        private double Get()
+        internal double Get()
         {
             var gotLock = false;
             try

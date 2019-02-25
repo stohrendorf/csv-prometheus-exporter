@@ -25,5 +25,11 @@ namespace csv_prometheus_exporter.Prometheus
             Debug.Assert(value >= 0);
             _value.Add(value);
         }
+
+        public void Set(double value)
+        {
+            Debug.Assert(value >= _value.Get());
+            _value.Set(value);
+        }
     }
 }

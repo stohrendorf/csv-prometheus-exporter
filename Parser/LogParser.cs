@@ -103,11 +103,11 @@ namespace csv_prometheus_exporter.Parser
                     if (cancellationToken.IsCancellationRequested)
                         break;
 
-                    metrics["parser_errors"].WithLabels(envDict).Add(1);
+                    MetricBase.ParserErrors.WithLabels(envDict).Add(1);
                     continue;
                 }
 
-                metrics["lines_parsed"].WithLabels(entry.Labels).Add(1);
+                MetricBase.LinesParsed.WithLabels(entry.Labels).Add(1);
 
                 foreach (var (name, amount) in entry.Metrics)
                     metrics[name].WithLabels(entry.Labels).Add(amount);

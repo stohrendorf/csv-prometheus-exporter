@@ -35,6 +35,39 @@ namespace csv_prometheus_exporter.Scraper
             return Task.Run(() => ExposeData(context));
         }
 
+        private static readonly MetricBase ProcessCPUSecondsBase =
+            new MetricBase("process_cpu_seconds", "Process CPU seconds", MetricsType.Counter);
+
+        private static readonly MetricBase ProcessRSSBytes =
+            new MetricBase("process_resident_memory_bytes", "Process RSS", MetricsType.Gauge);
+
+        private static readonly MetricBase ProcessStartTime = new MetricBase("process_start_time_seconds",
+            "Process Start Time (Unix epoch)", MetricsType.Counter);
+
+        private static readonly MetricBase ExposedMetrics =
+            new MetricBase("exposed_metrics", "Currently exposed (active) metrics", MetricsType.Gauge);
+
+        private static void ExposeProcessMetrics(StreamWriter textStream, int totalExposed)
+        {
+            var process = Process.GetCurrentProcess();
+
+            ((Counter) ProcessCPUSecondsBase.WithLabels(new LabelDict(Environment.MachineName)))
+                .Set(process.TotalProcessorTime.TotalSeconds);
+            ProcessCPUSecondsBase.ExposeTo(textStream);
+
+            ((Gauge) ProcessRSSBytes.WithLabels(new LabelDict(Environment.MachineName)))
+                .Set(process.WorkingSet64);
+            ProcessRSSBytes.ExposeTo(textStream);
+
+            ((Counter) ProcessStartTime.WithLabels(new LabelDict(Environment.MachineName)))
+                .Set(((DateTimeOffset) process.StartTime).ToUnixTimeSeconds());
+            ProcessStartTime.ExposeTo(textStream);
+
+            ((Gauge) ExposedMetrics.WithLabels(new LabelDict(Environment.MachineName)))
+                .Set(totalExposed);
+            ExposedMetrics.ExposeTo(textStream);
+        }
+
         private static void ExposeData(HttpContext context)
         {
             var stopWatch = new Stopwatch();
@@ -47,29 +80,7 @@ namespace csv_prometheus_exporter.Scraper
                 foreach (var aggregatedMetric in Metrics.Values)
                     totalExposed += aggregatedMetric.ExposeTo(textStream);
 
-                var process = Process.GetCurrentProcess();
-
-                var meta = new MetricBase("process_cpu_seconds", "Process CPU seconds", MetricsType.Counter);
-                var metric = meta.WithLabels(new LabelDict(Environment.MachineName));
-                metric.Add(process.TotalProcessorTime.TotalSeconds);
-                meta.ExposeTo(textStream);
-
-                meta = new MetricBase("process_resident_memory_bytes", "Process RSS", MetricsType.Gauge);
-                metric = meta.WithLabels(new LabelDict(Environment.MachineName));
-                metric.Add(process.WorkingSet64);
-                meta.ExposeTo(textStream);
-
-                meta = new MetricBase("process_start_time_seconds", "Process Start Time (Unix epoch)",
-                    MetricsType.Counter);
-                metric = meta.WithLabels(new LabelDict(Environment.MachineName));
-                metric.Add(((DateTimeOffset) process.StartTime).ToUnixTimeSeconds());
-                meta.ExposeTo(textStream);
-
-                meta = new MetricBase("exposed_metrics", "Currently exposed (active) metrics",
-                    MetricsType.Gauge);
-                metric = meta.WithLabels(new LabelDict(Environment.MachineName));
-                metric.Add(totalExposed);
-                metric.ExposeTo(textStream);
+                ExposeProcessMetrics(textStream, totalExposed);
             }
 
             stopWatch.Stop();

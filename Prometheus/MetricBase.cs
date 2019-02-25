@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
 using NLog;
@@ -19,6 +20,20 @@ namespace csv_prometheus_exporter.Prometheus
 
         public static string GlobalPrefix = null;
         public static int TTL = 60;
+
+        /// <summary>
+        /// Time To Death
+        /// </summary>
+        private static int TTD => 2 * TTL;
+
+        public static readonly MetricBase ParserErrors = new MetricBase("parser_errors",
+            "Number of lines which could not be parsed", MetricsType.Counter, null, true);
+
+        public static readonly MetricBase LinesParsed = new MetricBase("lines_parsed",
+            "Number of successfully parsed lines", MetricsType.Counter, null, true);
+
+        public static readonly MetricBase Connected = new MetricBase("connected",
+            "Whether this target is currently being scraped", MetricsType.Gauge, null, true);
 
         [NotNull] private readonly string _baseName;
         [CanBeNull] private readonly double[] _buckets;
@@ -55,6 +70,8 @@ namespace csv_prometheus_exporter.Prometheus
             {
                 _baseName += "_total";
             }
+
+            KillDeadMetricsCycle();
         }
 
         public MetricsType Type { get; }
@@ -83,17 +100,15 @@ namespace csv_prometheus_exporter.Prometheus
             }
 
             var exposed = 0;
-            var eol = DateTime.Now - TimeSpan.FromSeconds(TTL);
+            var endOfLife = DateTime.Now - TimeSpan.FromSeconds(TTL);
             foreach (var metric in metrics)
             {
-                if (!metric.ExposeAlways && metric.LastUpdated < eol)
+                if (!metric.ExposeAlways && metric.LastUpdated < endOfLife)
                     continue;
 
                 metric.ExposeTo(stream);
                 ++exposed;
             }
-
-            Task.Run(() => KillDeadMetrics());
 
             return exposed;
         }
@@ -107,7 +122,7 @@ namespace csv_prometheus_exporter.Prometheus
                 stopWatch.Start();
                 var old = new Dictionary<LabelDict, LabeledMetric>(_metrics);
                 _metrics.Clear();
-                var eol = DateTime.Now - TimeSpan.FromSeconds(TTL * 2);
+                var eol = DateTime.Now - TimeSpan.FromSeconds(TTD);
 
                 foreach (var (labels, metric) in old)
                 {
@@ -121,6 +136,14 @@ namespace csv_prometheus_exporter.Prometheus
                 logger.Info(
                     $"Metrics extinction for {_baseName} took {stopWatch.Elapsed}; of {old.Count} metrics, {_metrics.Count} were retained");
             }
+
+            Thread.Yield();
+            KillDeadMetricsCycle();
+        }
+
+        private void KillDeadMetricsCycle()
+        {
+            Task.Delay(TimeSpan.FromSeconds(TTL)).ContinueWith(_ => KillDeadMetrics());
         }
 
         private LabeledMetric CreateMetrics([NotNull] LabelDict labels)
