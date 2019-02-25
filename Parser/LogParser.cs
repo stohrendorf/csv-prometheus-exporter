@@ -46,7 +46,7 @@ namespace csv_prometheus_exporter.Parser
             using (var sshStream = new SSHStream(_stream))
             using (var parser = new CsvReader(sshStream, Encoding.UTF8,
                 new CsvReader.Config
-                    {Quotes = quotes, ColumnSeparator = columnSeparator, WithQuotes = false}))
+                    {Quotes = quotes, ColumnSeparator = columnSeparator, WithQuotes = false, ReadinBufferSize = 64}))
             {
                 while (_stream.CanRead && !cancellationToken.IsCancellationRequested)
                 {

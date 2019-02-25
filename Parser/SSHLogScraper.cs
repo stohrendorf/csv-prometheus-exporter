@@ -92,6 +92,8 @@ namespace csv_prometheus_exporter.Parser
                                 cmd.EndExecute(tmp);
                                 if (cmd.ExitStatus != 0)
                                     logger.Warn($"Tail command failed with exit code {cmd.ExitStatus} on {_host}");
+                                else
+                                    logger.Info($"Tail command finished successfully on {_host}");
                             }
                         }
                         catch (SshOperationTimeoutException ex)
