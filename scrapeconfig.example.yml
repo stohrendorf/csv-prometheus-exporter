@@ -25,4 +25,4 @@ ssh:
         # password: supasecure
         file: /var/log/apache/access_log.txt
         connect-timeout: 25
-      hosts: [nirvana] # a single host doesn't need to be wrapped in a list
+      hosts: [nirvana]

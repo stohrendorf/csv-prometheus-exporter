@@ -4,7 +4,8 @@
 
 A simple exporter for CSV-based files[*].  Basically runs "tail -f" on remote files over SSH and aggregates
 them into Prometheus compatible metrics. It is capable of processing at least 100 servers with thousands of
-requests per second on a single core with a response time below 2 seconds.
+requests per second on a small VM (peak usage 8 cores, average usage 2 cores, average RAM usage below 200MB,
+average incoming SSH traffic below 400kB/s, not including resource requirements for Prometheus itself).
 
 > [*] CSV in this case means "space-separated, double-quote delimited format"; this piece of software was primarily
 > developed for parsing access logs, but if needed, it can be extended to parse any CSV-based format that
@@ -13,38 +14,66 @@ requests per second on a single core with a response time below 2 seconds.
 Metrics are exposed at `host:5000/metrics`.
 
 ## Configuration
-The configuration format is defined as follows.
-```yaml
+The configuration format is defined as follows. Identifiers prefixed with a `$` are names that can be
+chosen freely. Stuff enclosed within `[...]` is optional, the text enclosed within `<...>` describes
+the expected types. Please note that the tilde (`~`) is equivalent to `null`.
+```
 global:
-  ttl: 60 # The metrics' time-to-live in seconds.
-  prefix: some_prefix  # If set, all metrics (including process metrics) will be exposed as "some_prefix:metric".
-  histograms: # optional
-    - response_time: ~  # Default bucket limits.
-    - request_size: [10, 20, 50, ...]  # Upper bucket limits, "+Inf" is added automatically.
-  format:
-    - name: type
-    - name: type+request_size  # Expose the metric as a histogram, using the histograms defined above.
-    - ...
+  # The metrics' time-to-live.
+  ttl: <seconds = 60>
+  # If prefix is set, all metrics (including process metrics)
+  # will be exposed as "prefix:metric-name".
+  [prefix: <string>]
+  [histograms: <buckets-list>]
+  format: <metrics-list>
 
-script: python3 some-inventory-script.py # Output must be the the same as the ssh section below, including the "ssh" key.
-reload-interval: 30 # Optional; seconds between attempts to execute the script above.
+[script: <script-name>]
+# If a script is given, but no reload-interval, it is executed only once at startup.
+[reload-interval: <seconds>]
 
 ssh:
-  connection: # Provide some default settings; these can be overriden per environment.
-    file: /var/log/some-csv-file # tail -f on this
-    user: log-reader # SSH user
-    password: secure123
-    pkey: /home/log-reader-id-rsa # private key file (optional)
-    connect-timeout: 5 # (optional, defaults to 30 seconds)
-    read-timeout-ms: 1000 # (optional, defaults to 60 seconds)
-  environments:
-    environmentA:
-      hosts: [...]
-    environmentB:
-      hosts: [...]
-      connection:
-        file: /var/log/some-other-csv-file
-        user: someotheruser
+  [<connection-settings>]
+  environments: <list-of-environments>
+
+<buckets-list> :=
+  # Numbers do not need to be ordered, an implicit "+Inf" will be added.
+  # If the values are not set, the default will be used, which is
+  # [.005, .01, .025, .05, .075, .1, .25, .5, .75, 1, 2.5, 5, 7.5, 10]
+  $bucket_name_1: <~ | list-of-numbers>
+  $bucket_name_2: <~ | list-of-numbers>
+  ...
+
+<metrics-list> :=
+  $metric_name_1: <type>
+  $metric_name_2: <type>
+  
+<type> :=
+  # Example: clf_number + request_bytes_sent 
+  (number | clf_number | label | request_header) [+ $bucket_name]
+
+<list-of-environments> :=
+  $environment_name_1:
+    hosts: <hostnames-or-ip-list>
+    [connection: <connection-settings>]
+  $environment_name_2:
+    hosts: <hostnames-or-ip-list>
+    [connection: <connection-settings>]
+  ...
+
+# Note that a few restrictions exist for the connection settings.
+#   1. "file" and "user" are defined as required, but this means only
+#      that they must be either set at the global "ssh" level, or at
+#      the environment level.
+#   2. At least one of "password" or "pkey" must be set.
+#   3. If one of the settings is not set explicitly on environment level,
+#      the value is inherited from the global "ssh" level.
+<connection-settings> :=
+  file: <string>
+  user: <string>
+  [password: <string>]
+  [pkey: <string>]
+  [connect-timeout: <seconds = 30>]
+  [read-timeout-ms: <ms = 60000]
 ```
 
 The supported `type` values are:
@@ -72,7 +101,7 @@ format: # based on "%h %l %u %t \"%r\" %>s %b"
 - body_bytes_sent: clf_number  # maps a single dash to zero, otherwise behaves like "number"
 ```
 
-Place your `scrapeconfig.yml` either in the folder you're starting `app.py` from, or
+Place your `scrapeconfig.yml` either in `/etc`, or
 provide the environment variable `SCRAPECONFIG` with a config file path;
 [see here for a config file example](./scrapeconfig.example.yml), showing all of its features.
 
