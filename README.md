@@ -21,6 +21,10 @@ the expected types. Please note that the tilde (`~`) is equivalent to `null`.
 global:
   # The metrics' time-to-live.
   ttl: <seconds = 60>
+  [background-resilience: <integer = 1>] # how many "ttl" time spans to keep the metrics in background after they
+                                         # exceed their ttl
+  [long-term-resilience: <integer = 10>] # how many "ttl" time spans to keep long-term metrics in background after they
+                                         # exceed their ttl
   # If prefix is set, all metrics (including process metrics)
   # will be exposed as "prefix:metric-name".
   [prefix: <string>]
@@ -116,10 +120,13 @@ A docker image, containing `python3` and `curl`, is available
 Metrics track when they were last updated. If a metric doesn't change within the TTL specified in the
 config file (which defaults to 60 seconds), it will not be exposed via `/metrics` anymore; this is the
 first phase of garbage collection to avoid excessive traffic. If a metric is in the first phase of garbage
-collection, and doesn't receive an update for another period of the specified TTL, it will be fully evicted
-from the processing.
+collection, and doesn't receive an update for another `background-resilience` periods of the specified TTL,
+it will be fully evicted from the processing.
 
-Practice has shown that this two-phase metric garbage collection is strictly necessary to avoid excessive
+A few metrics (namely, the `parser_errors` and `lines_parsed` metrics) are in "long-term mode"; they will be evicted
+after `long-term-resilience` periods of the TTL; the `connected` metric will never be evicted.
+
+Practice has shown that this multi-phase metric garbage collection is strictly necessary to avoid excessive
 response sizes and to avoid the process to be clogged up by processing dead metrics. It doesn't have any known
 serious impacts on the metrics' values, though.
 

@@ -134,7 +134,7 @@ namespace csv_prometheus_exporter.Parser
                     MetricsType.Counter),
                 ["connected"] = new MetricBase("connected", "Whether this target is currently being scraped",
                     MetricsType.Gauge, null,
-                    true)
+                    Resilience.Zombie)
             };
 
             return result;

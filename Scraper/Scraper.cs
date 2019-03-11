@@ -172,6 +172,8 @@ namespace csv_prometheus_exporter.Scraper
 
             MetricBase.GlobalPrefix = globalConfig.Prefix;
             MetricBase.TTL = globalConfig.TTL;
+            MetricBase.BackgroundResilience = globalConfig.BackgroundResilience;
+            MetricBase.LongTermResilience = globalConfig.LongTermResilience;
         }
 
         private static void LoadScrapersConfig(IDictionary<string, SSHLogScraper> scrapers, ScraperConfig scrapeConfig,

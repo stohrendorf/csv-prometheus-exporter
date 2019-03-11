@@ -18,7 +18,7 @@ namespace csv_prometheus_exporter.Prometheus
         public readonly LabelDict Labels;
 
         private readonly MetricBase _metricBase;
-        public bool ExposeAlways => _metricBase.ExposeAlways;
+        public Resilience Resilience => _metricBase.Resilience;
 
         public DateTime LastUpdated = DateTime.Now;
 

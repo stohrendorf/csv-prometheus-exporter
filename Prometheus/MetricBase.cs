@@ -11,6 +11,13 @@ using NLog;
 
 namespace csv_prometheus_exporter.Prometheus
 {
+    public enum Resilience
+    {
+        Weak,
+        LongTerm,
+        Zombie
+    }
+
     /// <summary>
     /// Basic metric definition and container for its instances.
     /// </summary>
@@ -33,20 +40,24 @@ namespace csv_prometheus_exporter.Prometheus
         }
 
         public static int TTL = 60;
+        public static int BackgroundResilience = 1;
+        public static int LongTermResilience = 10;
 
         /// <summary>
         /// Time To Death
         /// </summary>
-        private static int TTD => 2 * TTL;
+        private static int BackgroundTime => (BackgroundResilience + 1) * TTL;
+
+        private static int LongTermTime => (LongTermResilience + 1) * TTL;
 
         public static readonly MetricBase ParserErrors = new MetricBase("parser_errors",
-            "Number of lines which could not be parsed", MetricsType.Counter, null, true);
+            "Number of lines which could not be parsed", MetricsType.Counter, null, Resilience.LongTerm);
 
         public static readonly MetricBase LinesParsed = new MetricBase("lines_parsed",
-            "Number of successfully parsed lines", MetricsType.Counter, null, true);
+            "Number of successfully parsed lines", MetricsType.Counter, null, Resilience.LongTerm);
 
         public static readonly MetricBase Connected = new MetricBase("connected",
-            "Whether this target is currently being scraped", MetricsType.Gauge, null, true);
+            "Whether this target is currently being scraped", MetricsType.Gauge, null, Resilience.Zombie);
 
         [NotNull] private readonly string _baseName;
         [CanBeNull] private readonly double[] _buckets;
@@ -57,10 +68,10 @@ namespace csv_prometheus_exporter.Prometheus
 
         private readonly object _metricsLock = new object();
 
-        public readonly bool ExposeAlways;
+        public readonly Resilience Resilience;
 
         public MetricBase([NotNull] string baseName, [NotNull] string help, MetricsType type,
-            [CanBeNull] double[] buckets = null, bool exposeAlways = false)
+            [CanBeNull] double[] buckets = null, Resilience resilience = Resilience.Weak)
         {
             if (!IsValidMetricsBasename(baseName))
                 throw new ArgumentException("Invalid metrics name", nameof(baseName));
@@ -68,7 +79,7 @@ namespace csv_prometheus_exporter.Prometheus
             _baseName = baseName;
             _help = help;
             Type = type;
-            ExposeAlways = exposeAlways;
+            Resilience = resilience;
             if (buckets != null)
                 _buckets = buckets.ToArray();
 
@@ -111,10 +122,24 @@ namespace csv_prometheus_exporter.Prometheus
 
             var exposed = 0;
             var endOfLife = DateTime.Now - TimeSpan.FromSeconds(TTL);
+            var endOfLongTermLife = DateTime.Now - TimeSpan.FromSeconds(LongTermTime);
             foreach (var metric in metrics)
             {
-                if (!metric.ExposeAlways && metric.LastUpdated < endOfLife)
-                    continue;
+                switch (metric.Resilience)
+                {
+                    case Resilience.Weak:
+                        if (metric.LastUpdated < endOfLife)
+                            continue;
+                        break;
+                    case Resilience.LongTerm:
+                        if (metric.LastUpdated < endOfLongTermLife)
+                            continue;
+                        break;
+                    case Resilience.Zombie:
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException();
+                }
 
                 metric.ExposeTo(stream);
                 ++exposed;
@@ -132,12 +157,26 @@ namespace csv_prometheus_exporter.Prometheus
                 stopWatch.Start();
                 var old = new Dictionary<LabelDict, LabeledMetric>(_metrics);
                 _metrics.Clear();
-                var eol = DateTime.Now - TimeSpan.FromSeconds(TTD);
+                var endOfLife = DateTime.Now - TimeSpan.FromSeconds(BackgroundTime);
+                var endOfLongTermLife = DateTime.Now - TimeSpan.FromSeconds(LongTermTime);
 
                 foreach (var (labels, metric) in old)
                 {
-                    if (!metric.ExposeAlways && metric.LastUpdated < eol)
-                        continue;
+                    switch (metric.Resilience)
+                    {
+                        case Resilience.Weak:
+                            if (metric.LastUpdated < endOfLife)
+                                continue;
+                            break;
+                        case Resilience.LongTerm:
+                            if (metric.LastUpdated < endOfLongTermLife)
+                                continue;
+                            break;
+                        case Resilience.Zombie:
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException();
+                    }
 
                     _metrics[labels] = metric;
                 }

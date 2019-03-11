@@ -54,6 +54,12 @@ namespace csv_prometheus_exporter.Scraper.Config
         [YamlMember(Alias = "ttl", ApplyNamingConventions = false)]
         public int TTL { get; set; } = 60;
 
+        [YamlMember(Alias = "background-resilience", ApplyNamingConventions = false)]
+        public int BackgroundResilience { get; set; } = 1;
+
+        [YamlMember(Alias = "long-term-resilience", ApplyNamingConventions = false)]
+        public int LongTermResilience { get; set; } = 10;
+
         [YamlMember(Alias = "prefix", ApplyNamingConventions = false)]
         public string Prefix { get; set; } = null;
 
