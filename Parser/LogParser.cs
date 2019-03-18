@@ -16,9 +16,9 @@ namespace csv_prometheus_exporter.Parser
 {
     public class LogParser
     {
-        private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
+        private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
-        private readonly LabelDict _labels;
+        private readonly LabelDict _envLabel;
         private readonly IList<ColumnReader> _readers;
         private readonly Stream _stream;
 
@@ -26,7 +26,7 @@ namespace csv_prometheus_exporter.Parser
         {
             _stream = stream;
             _readers = readers;
-            _labels = new LabelDict(environment);
+            _envLabel = new LabelDict(environment);
         }
 
         private ParsedMetrics ConvertCsvLine(ICsvReaderRow line, LabelDict labels)
@@ -56,36 +56,42 @@ namespace csv_prometheus_exporter.Parser
                         var task = parser.MoveNextAsync(cancellationToken);
                         if (!task.Wait(msTimeout, cancellationToken))
                         {
-                            logger.Warn("Source stream timed out");
+                            Logger.Warn("Source stream timed out");
                             yield break;
                         }
 
                         if (task.Result)
-                            result = ConvertCsvLine(parser.Current, _labels);
+                            result = ConvertCsvLine(parser.Current, _envLabel);
                     }
                     catch (ParserError)
                     {
                     }
                     catch (OperationCanceledException)
                     {
-                        logger.Info("Parser cancellation requested");
+                        Logger.Info("Parser cancellation requested");
                         break;
                     }
                     catch (Exception ex)
                     {
-                        logger.Fatal(ex, $"Unexpected exception: {ex.Message}");
+                        Logger.Fatal(ex, $"Unexpected exception: {ex.Message}");
                     }
 
                     yield return result;
+
+                    MetricBase.SSHBytesIn.WithLabels(_envLabel).Add(sshStream.TotalRead);
+                    sshStream.TotalRead = 0;
                 }
+
+                MetricBase.SSHBytesIn.WithLabels(_envLabel).Add(sshStream.TotalRead);
+                sshStream.TotalRead = 0;
             }
 
             if (!_stream.CanRead)
-                logger.Info("End of stream");
+                Logger.Info("End of stream");
             else if (cancellationToken.IsCancellationRequested)
-                logger.Info("Thread termination requested");
+                Logger.Info("Thread termination requested");
             else
-                logger.Warn("Unknown reason for parsing cancellation");
+                Logger.Warn("Unknown reason for parsing cancellation");
         }
 
         public static void ParseFile(Stream stream, string environment, IList<ColumnReader> readers,
@@ -122,7 +128,7 @@ namespace csv_prometheus_exporter.Parser
     public class LogParserTest
     {
         private const int ReadSleepSeconds = 10;
-        private static readonly TimeSpan stepDelay = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan StepDelay = TimeSpan.FromSeconds(2);
 
         private static IDictionary<string, MetricBase> CreateMetricsDict()
         {
@@ -177,10 +183,10 @@ namespace csv_prometheus_exporter.Parser
             var task = Task.Run(
                 () => LogParser.ParseFile(streamMock.Object, "env", readers, CreateMetricsDict(), int.MaxValue,
                     tokenSource.Token), tokenSource.Token);
-            Thread.Sleep(stepDelay);
+            Thread.Sleep(StepDelay);
             Assert.That(task.Status, Is.EqualTo(TaskStatus.Running));
             tokenSource.Cancel();
-            Thread.Sleep(stepDelay);
+            Thread.Sleep(StepDelay);
             Assert.That(task.Status, Is.EqualTo(TaskStatus.RanToCompletion));
         }
     }

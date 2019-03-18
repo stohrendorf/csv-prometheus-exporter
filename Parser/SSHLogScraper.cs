@@ -12,7 +12,7 @@ namespace csv_prometheus_exporter.Parser
 {
     public sealed class SSHLogScraper
     {
-        private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
+        private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
         public readonly CancellationTokenSource CancellationTokenSource = new CancellationTokenSource();
 
@@ -63,7 +63,7 @@ namespace csv_prometheus_exporter.Parser
 
         public void Run()
         {
-            logger.Info($"Scraper thread for {_filename} on {_host} became alive");
+            Logger.Info($"Scraper thread for {_filename} on {_host} became alive");
             var envHostDict = new LabelDict(_environment);
             envHostDict.Set("host", _host);
             var connected = MetricBase.Connected.WithLabels(envHostDict) as Gauge;
@@ -77,12 +77,12 @@ namespace csv_prometheus_exporter.Parser
                         connected.Set(0);
                         try
                         {
-                            logger.Info($"Trying to establish connection to {_host}");
+                            Logger.Info($"Trying to establish connection to {_host}");
                             using (var client = CreateClient())
                             {
                                 client.Connect();
                                 connected.Set(1);
-                                logger.Info($"Starting tailing {_filename} on {_host}");
+                                Logger.Info($"Starting tailing {_filename} on {_host}");
                                 var cmd = client.CreateCommand($"tail -n0 -F \"{_filename}\" 2>/dev/null");
                                 var tmp = cmd.BeginExecute();
                                 ((PipeStream) cmd.OutputStream).BlockLastReadBuffer = true;
@@ -91,34 +91,34 @@ namespace csv_prometheus_exporter.Parser
 
                                 cmd.EndExecute(tmp);
                                 if (cmd.ExitStatus != 0)
-                                    logger.Warn($"Tail command failed with exit code {cmd.ExitStatus} on {_host}");
+                                    Logger.Warn($"Tail command failed with exit code {cmd.ExitStatus} on {_host}");
                                 else
-                                    logger.Info($"Tail command finished successfully on {_host}");
+                                    Logger.Info($"Tail command finished successfully on {_host}");
                             }
                         }
                         catch (SshOperationTimeoutException ex)
                         {
-                            logger.Error($"Timeout on {_host}: {ex.Message}");
+                            Logger.Error($"Timeout on {_host}: {ex.Message}");
                         }
                         catch (SshConnectionException ex)
                         {
-                            logger.Error($"Failed to connect to {_host}: {ex.Message}");
+                            Logger.Error($"Failed to connect to {_host}: {ex.Message}");
                         }
                         catch (SshAuthenticationException ex)
                         {
-                            logger.Error($"Failed to authenticate for {_host}: {ex.Message}");
+                            Logger.Error($"Failed to authenticate for {_host}: {ex.Message}");
                         }
                         catch (SocketException ex)
                         {
-                            logger.Error($"Error on socket for {_host} (check firewall?): {ex.Message}");
+                            Logger.Error($"Error on socket for {_host} (check firewall?): {ex.Message}");
                         }
                         catch (Exception ex)
                         {
-                            logger.Fatal(ex, $"Unhandled exception on {_host}: {ex.Message}");
+                            Logger.Fatal(ex, $"Unhandled exception on {_host}: {ex.Message}");
                         }
 
                         connected.Set(0);
-                        logger.Info($"Will retry connecting to {_host} in 30 seconds");
+                        Logger.Info($"Will retry connecting to {_host} in 30 seconds");
                         if (CancellationTokenSource.Token.WaitHandle.WaitOne(TimeSpan.FromSeconds(30)))
                             break;
                     }

@@ -23,13 +23,13 @@ namespace csv_prometheus_exporter.Prometheus
     /// </summary>
     public sealed class MetricBase
     {
-        private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
+        private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
-        private static string _globalPrefix = null;
+        private static string _globalPrefix;
 
         public static string GlobalPrefix
         {
-            get => _globalPrefix;
+            private get => _globalPrefix;
 
             set
             {
@@ -58,6 +58,9 @@ namespace csv_prometheus_exporter.Prometheus
 
         public static readonly MetricBase Connected = new MetricBase("connected",
             "Whether this target is currently being scraped", MetricsType.Gauge, null, Resilience.Zombie);
+
+        public static readonly MetricBase SSHBytesIn = new MetricBase("ssh_bytes_in",
+            "Total bytes read over SSH", MetricsType.Counter, null, Resilience.LongTerm);
 
         [NotNull] private readonly string _baseName;
         [CanBeNull] private readonly double[] _buckets;
@@ -152,7 +155,7 @@ namespace csv_prometheus_exporter.Prometheus
         {
             lock (_metricsLock)
             {
-                logger.Info($"Doing metric extinction for {_baseName}...");
+                Logger.Info($"Doing metric extinction for {_baseName}...");
                 var stopWatch = new Stopwatch();
                 stopWatch.Start();
                 var old = new Dictionary<LabelDict, LabeledMetric>(_metrics);
@@ -182,7 +185,7 @@ namespace csv_prometheus_exporter.Prometheus
                 }
 
                 stopWatch.Stop();
-                logger.Info(
+                Logger.Info(
                     $"Metrics extinction for {_baseName} took {stopWatch.Elapsed}; of {old.Count} metrics, {_metrics.Count} were retained");
             }
 

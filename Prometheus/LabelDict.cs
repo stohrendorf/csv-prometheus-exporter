@@ -112,6 +112,7 @@ namespace csv_prometheus_exporter.Prometheus
         [Test]
         public void TestConstruction()
         {
+            // ReSharper disable once AssignNullToNotNullAttribute
             Assert.That(() => new LabelDict((string) null), Throws.TypeOf<ArgumentNullException>());
             Assert.That(() => new LabelDict(""), Throws.TypeOf<ArgumentNullException>());
 

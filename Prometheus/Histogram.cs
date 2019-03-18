@@ -16,9 +16,13 @@ namespace csv_prometheus_exporter.Prometheus
         private readonly double[] _buckets;
         private readonly string _countName;
         private readonly ULongScalar[] _counts;
-        private readonly ULongScalar _observations = new ULongScalar();
         private readonly Scalar _sum = new Scalar();
         private readonly string _sumName;
+
+        /// <summary>
+        /// Placeholder value for the "le" label, to be replaced with the bucket border when exposed.
+        /// </summary>
+        private const string LePlaceholder = "$$$$$";
 
         public Histogram([NotNull] MetricBase metricBase, [NotNull] LabelDict labels, [NotNull] double[] buckets)
             : base(metricBase, labels)
@@ -34,7 +38,7 @@ namespace csv_prometheus_exporter.Prometheus
                 throw new ArgumentException("Must at least provide one bucket", nameof(buckets));
 
             _counts = Enumerable.Range(0, _buckets.Length).Select(_ => new ULongScalar()).ToArray();
-            _bucketName = ExtendBaseName(QualifiedName("$$$$$"), "_bucket");
+            _bucketName = ExtendBaseName(QualifiedName(LePlaceholder), "_bucket");
             var name = QualifiedName();
             _sumName = ExtendBaseName(name, "_sum");
             _countName = ExtendBaseName(name, "_count");
@@ -42,16 +46,19 @@ namespace csv_prometheus_exporter.Prometheus
 
         public override void ExposeTo(StreamWriter stream)
         {
+            ulong count = 0;
             for (var i = 0; i < _buckets.Length; ++i)
-                stream.WriteLine("{0} {1}", _bucketName.Replace("$$$$$", ToGoString(_buckets[i])), _counts[i]);
+            {
+                count = _counts[i].Get();
+                stream.WriteLine("{0} {1}", _bucketName.Replace(LePlaceholder, ToGoString(_buckets[i])), count);
+            }
 
-            stream.WriteLine("{0} {1}", _countName, _observations);
+            stream.WriteLine("{0} {1}", _countName, count);
             stream.WriteLine("{0} {1}", _sumName, _sum);
         }
 
         public override void Add(double value)
         {
-            _observations.Add(1);
             _sum.Add(value);
             for (var i = 0; i < _buckets.Length; ++i)
                 if (value <= _buckets[i])

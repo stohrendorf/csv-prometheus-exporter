@@ -75,6 +75,7 @@ namespace csv_prometheus_exporter.Prometheus
 
         public override int GetHashCode()
         {
+            // ReSharper disable once NonReadonlyMemberInGetHashCode
             return _value.GetHashCode();
         }
 
@@ -151,6 +152,7 @@ namespace csv_prometheus_exporter.Prometheus
 
         public override int GetHashCode()
         {
+            // ReSharper disable once NonReadonlyMemberInGetHashCode
             return _value.GetHashCode();
         }
 

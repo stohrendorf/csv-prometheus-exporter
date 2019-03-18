@@ -4,9 +4,10 @@ using JetBrains.Annotations;
 
 namespace csv_prometheus_exporter.Parser
 {
+    /// <inheritdoc />
     /// <summary>
-    /// Simple wrapper around SSH stdout streams, because the library doesn't support <see cref="Stream#Read"/> with
-    /// offsets other than zero.
+    /// Simple wrapper around SSH stdout streams, because the library doesn't support <see cref="!:Stream#Read" /> with
+    /// offsets other than zero. Additionally exposes the total number of bytes read.
     /// </summary>
     public sealed class SSHStream : Stream
     {
@@ -25,7 +26,7 @@ namespace csv_prometheus_exporter.Parser
         public override long Position
         {
             get => _stream.Position;
-            set => _stream.Position = value;
+            set => throw new NotSupportedException();
         }
 
         public override void Flush()
@@ -33,10 +34,16 @@ namespace csv_prometheus_exporter.Parser
             _stream.Flush();
         }
 
+        public long TotalRead = 0;
+
         public override int Read(byte[] buffer, int offset, int count)
         {
             if (offset == 0)
-                return _stream.Read(buffer, offset, count);
+            {
+                var result = _stream.Read(buffer, offset, count);
+                TotalRead += result;
+                return result;
+            }
 
             var tmp = new byte[count];
             var totalRead = 0;
@@ -47,6 +54,7 @@ namespace csv_prometheus_exporter.Parser
                 totalRead += current;
             }
 
+            TotalRead += totalRead;
             return totalRead;
         }
 
