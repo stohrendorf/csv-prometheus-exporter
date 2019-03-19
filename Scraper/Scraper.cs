@@ -21,7 +21,7 @@ namespace csv_prometheus_exporter.Scraper
 {
     internal static class Scraper
     {
-        private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
+        private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
         private static ScraperConfig ReadCoreConfig(out IList<ColumnReader> readers)
         {
@@ -60,8 +60,8 @@ namespace csv_prometheus_exporter.Scraper
                 .Deserialize<ScraperConfig>(stdout);
             if (config == null)
             {
-                logger.Error("Failed to parse inventory script output:");
-                logger.Error(stdout);
+                Logger.Error("Failed to parse inventory script output:");
+                Logger.Error(stdout);
                 return;
             }
 
@@ -191,7 +191,7 @@ namespace csv_prometheus_exporter.Scraper
             ServicePointManager.DefaultConnectionLimit = 1;
 
             ThreadPool.GetMinThreads(out var a, out var b);
-            logger.Debug($"Current min threads: {a}, {b}");
+            Logger.Debug($"Current min threads: {a}, {b}");
             if (!ThreadPool.SetMinThreads(1024, 128))
                 throw new Exception("Failed to set minimum thread count");
 

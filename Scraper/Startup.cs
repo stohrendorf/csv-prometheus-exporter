@@ -16,7 +16,7 @@ namespace csv_prometheus_exporter.Scraper
 {
     public class Startup
     {
-        private static readonly ILogger logger = LogManager.GetCurrentClassLogger();
+        private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
         public static readonly IDictionary<string, SSHLogScraper> Scrapers =
             new ConcurrentDictionary<string, SSHLogScraper>();
@@ -35,10 +35,10 @@ namespace csv_prometheus_exporter.Scraper
             return Task.Run(() => ExposeData(context));
         }
 
-        private static readonly MetricBase ProcessCPUSecondsBase =
+        private static readonly MetricBase ProcessCpuSecondsBase =
             new MetricBase("process_cpu_seconds", "Process CPU seconds", MetricsType.Counter);
 
-        private static readonly MetricBase ProcessRSSBytes =
+        private static readonly MetricBase ProcessRssBytes =
             new MetricBase("process_resident_memory_bytes", "Process RSS", MetricsType.Gauge);
 
         private static readonly MetricBase ProcessStartTime = new MetricBase("process_start_time_seconds",
@@ -51,13 +51,13 @@ namespace csv_prometheus_exporter.Scraper
         {
             var process = Process.GetCurrentProcess();
 
-            ((Counter) ProcessCPUSecondsBase.WithLabels(new LabelDict(Environment.MachineName)))
+            ((Counter) ProcessCpuSecondsBase.WithLabels(new LabelDict(Environment.MachineName)))
                 .Set(process.TotalProcessorTime.TotalSeconds);
-            ProcessCPUSecondsBase.ExposeTo(textStream);
+            ProcessCpuSecondsBase.ExposeTo(textStream);
 
-            ((Gauge) ProcessRSSBytes.WithLabels(new LabelDict(Environment.MachineName)))
+            ((Gauge) ProcessRssBytes.WithLabels(new LabelDict(Environment.MachineName)))
                 .Set(process.WorkingSet64);
-            ProcessRSSBytes.ExposeTo(textStream);
+            ProcessRssBytes.ExposeTo(textStream);
 
             ((Counter) ProcessStartTime.WithLabels(new LabelDict(Environment.MachineName)))
                 .Set(((DateTimeOffset) process.StartTime).ToUnixTimeSeconds());
@@ -89,7 +89,7 @@ namespace csv_prometheus_exporter.Scraper
             }
 
             stopWatch.Stop();
-            logger.Info($"Write active metrics to response stream: {stopWatch.Elapsed}");
+            Logger.Info($"Write active metrics to response stream: {stopWatch.Elapsed}");
         }
 
         // This method gets called by the runtime. Use this method

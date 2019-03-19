@@ -9,12 +9,11 @@ namespace csv_prometheus_exporter.Prometheus
     public sealed class Scalar
     {
         private double _value;
-        private SpinLock _lock;
+        private SpinLock _lock = new SpinLock();
 
         public Scalar(double value = 0.0)
         {
             _value = value;
-            _lock = new SpinLock();
         }
 
         public void Add(double d)
@@ -101,12 +100,11 @@ namespace csv_prometheus_exporter.Prometheus
     public sealed class ULongScalar
     {
         private ulong _value;
-        private SpinLock _lock;
+        private SpinLock _lock = new SpinLock();
 
         public ULongScalar(ulong value = 0)
         {
             _value = value;
-            _lock = new SpinLock();
         }
 
         public void Add(ulong d)

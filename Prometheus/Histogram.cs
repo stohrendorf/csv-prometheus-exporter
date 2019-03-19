@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using JetBrains.Annotations;
 
 namespace csv_prometheus_exporter.Prometheus
@@ -15,9 +16,10 @@ namespace csv_prometheus_exporter.Prometheus
 
         private readonly double[] _buckets;
         private readonly string _countName;
-        private readonly ULongScalar[] _counts;
-        private readonly Scalar _sum = new Scalar();
+        private readonly ulong[] _counts;
+        private double _sum;
         private readonly string _sumName;
+        private SpinLock _lock = new SpinLock();
 
         /// <summary>
         /// Placeholder value for the "le" label, to be replaced with the bucket border when exposed.
@@ -37,7 +39,7 @@ namespace csv_prometheus_exporter.Prometheus
             if (_buckets.Length < 2)
                 throw new ArgumentException("Must at least provide one bucket", nameof(buckets));
 
-            _counts = Enumerable.Range(0, _buckets.Length).Select(_ => new ULongScalar()).ToArray();
+            _counts = Enumerable.Repeat(0UL, _buckets.Length).ToArray();
             _bucketName = ExtendBaseName(QualifiedName(LePlaceholder), "_bucket");
             var name = QualifiedName();
             _sumName = ExtendBaseName(name, "_sum");
@@ -46,25 +48,50 @@ namespace csv_prometheus_exporter.Prometheus
 
         public override void ExposeTo(StreamWriter stream)
         {
-            ulong count = 0;
-            for (var i = 0; i < _buckets.Length; ++i)
+            ulong[] counts;
+            double[] buckets;
+            double sum;
+            var gotLock = false;
+            try
             {
-                count = _counts[i].Get();
-                stream.WriteLine("{0} {1}", _bucketName.Replace(LePlaceholder, ToGoString(_buckets[i])), count);
+                _lock.Enter(ref gotLock);
+                counts = (ulong[]) _counts.Clone();
+                buckets = (double[]) _buckets.Clone();
+                sum = _sum;
+            }
+            finally
+            {
+                if (gotLock)
+                    _lock.Exit();
             }
 
-            stream.WriteLine("{0} {1}", _countName, count);
-            stream.WriteLine("{0} {1}", _sumName, _sum);
+            for (var i = 0; i < buckets.Length; ++i)
+            {
+                stream.WriteLine("{0} {1}", _bucketName.Replace(LePlaceholder, ToGoString(buckets[i])), counts[i]);
+            }
+
+            stream.WriteLine("{0} {1}", _countName, counts.Last());
+            stream.WriteLine("{0} {1}", _sumName, sum);
         }
 
         public override void Add(double value)
         {
-            _sum.Add(value);
-            for (var i = 0; i < _buckets.Length; ++i)
-                if (value <= _buckets[i])
-                {
-                    _counts[i].Add(1);
-                }
+            var gotLock = false;
+            try
+            {
+                _lock.Enter(ref gotLock);
+                _sum += value;
+                for (var i = 0; i < _buckets.Length; ++i)
+                    if (value <= _buckets[i])
+                    {
+                        ++_counts[i];
+                    }
+            }
+            finally
+            {
+                if (gotLock)
+                    _lock.Exit();
+            }
         }
     }
 }
