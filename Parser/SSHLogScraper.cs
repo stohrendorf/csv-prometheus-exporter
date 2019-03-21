@@ -83,7 +83,7 @@ namespace csv_prometheus_exporter.Parser
                                 client.Connect();
                                 connected.Set(1);
                                 Logger.Info($"Starting tailing {_filename} on {_host}");
-                                var cmd = client.CreateCommand($"tail -n0 -F \"{_filename}\" 2>/dev/null");
+                                var cmd = client.CreateCommand($"tail -n0 --follow=name \"{_filename}\" 2>/dev/null");
                                 var tmp = cmd.BeginExecute();
                                 ((PipeStream) cmd.OutputStream).BlockLastReadBuffer = true;
                                 LogParser.ParseFile(cmd.OutputStream, _environment, _readers, _metrics, _readTimeoutMs,
