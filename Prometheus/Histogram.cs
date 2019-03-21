@@ -48,15 +48,15 @@ namespace csv_prometheus_exporter.Prometheus
 
         public override void ExposeTo(StreamWriter stream)
         {
-            ulong[] counts;
-            double[] buckets;
+            var counts = new ulong[_counts.Length];
+            var buckets = new double[_buckets.Length];
             double sum;
             var gotLock = false;
             try
             {
                 _lock.Enter(ref gotLock);
-                counts = (ulong[]) _counts.Clone();
-                buckets = (double[]) _buckets.Clone();
+                _counts.CopyTo(counts, 0);
+                _buckets.CopyTo(buckets, 0);
                 sum = _sum;
             }
             finally
