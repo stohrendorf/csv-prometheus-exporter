@@ -86,14 +86,24 @@ namespace csv_prometheus_exporter.Parser
                                 var cmd = client.CreateCommand($"tail -n0 --follow=name \"{_filename}\" 2>/dev/null");
                                 var tmp = cmd.BeginExecute();
                                 ((PipeStream) cmd.OutputStream).BlockLastReadBuffer = true;
-                                LogParser.ParseFile(cmd.OutputStream, _environment, _readers, _metrics, _readTimeoutMs,
-                                    CancellationTokenSource.Token);
+                                try
+                                {
+                                    LogParser.ParseStream(cmd.OutputStream, _environment, _readers, _metrics,
+                                        _readTimeoutMs,
+                                        CancellationTokenSource.Token);
 
-                                cmd.EndExecute(tmp);
-                                if (cmd.ExitStatus != 0)
-                                    Logger.Warn($"Tail command failed with exit code {cmd.ExitStatus} on {_host}");
-                                else
-                                    Logger.Info($"Tail command finished successfully on {_host}");
+                                    cmd.EndExecute(tmp);
+
+                                    if (cmd.ExitStatus != 0)
+                                        Logger.Warn($"Tail command failed with exit code {cmd.ExitStatus} on {_host}");
+                                    else
+                                        Logger.Info($"Tail command finished successfully on {_host}");
+                                }
+                                catch (StreamStarvationException)
+                                {
+                                    Logger.Warn($"SSH stream starvation for {_filename} on {_host}");
+                                    cmd.CancelAsync();
+                                }
                             }
                         }
                         catch (SshOperationTimeoutException ex)

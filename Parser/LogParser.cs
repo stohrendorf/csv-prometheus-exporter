@@ -14,6 +14,10 @@ using NUnit.Framework;
 
 namespace csv_prometheus_exporter.Parser
 {
+    public class StreamStarvationException : Exception
+    {
+    }
+
     public class LogParser
     {
         private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
@@ -56,12 +60,15 @@ namespace csv_prometheus_exporter.Parser
                         var task = parser.MoveNextAsync(cancellationToken);
                         if (!task.Wait(msTimeout, cancellationToken))
                         {
-                            Logger.Warn("Source stream timed out");
-                            yield break;
+                            throw new StreamStarvationException();
                         }
 
                         if (task.Result)
                             result = ConvertCsvLine(parser.Current, _envLabel);
+                    }
+                    catch (StreamStarvationException)
+                    {
+                        throw;
                     }
                     catch (ParserError)
                     {
@@ -94,7 +101,7 @@ namespace csv_prometheus_exporter.Parser
                 Logger.Warn("Unknown reason for parsing cancellation");
         }
 
-        public static void ParseFile(Stream stream, string environment, IList<ColumnReader> readers,
+        public static void ParseStream(Stream stream, string environment, IList<ColumnReader> readers,
             IDictionary<string, MetricBase> metrics, int msTimeout, CancellationToken cancellationToken)
         {
             if (string.IsNullOrEmpty(environment))
@@ -161,7 +168,9 @@ namespace csv_prometheus_exporter.Parser
             var readers = new List<ColumnReader>();
             var sw = new Stopwatch();
             sw.Start();
-            LogParser.ParseFile(streamMock.Object, "env", readers, CreateMetricsDict(), 200, CancellationToken.None);
+            Assert.That(
+                () => LogParser.ParseStream(streamMock.Object, "env", readers, CreateMetricsDict(), 200,
+                    CancellationToken.None), Throws.TypeOf<StreamStarvationException>());
             sw.Stop();
             Assert.That(sw.Elapsed.TotalSeconds, Is.LessThan(ReadSleepSeconds));
         }
@@ -181,7 +190,7 @@ namespace csv_prometheus_exporter.Parser
             var readers = new List<ColumnReader>();
             var tokenSource = new CancellationTokenSource();
             var task = Task.Run(
-                () => LogParser.ParseFile(streamMock.Object, "env", readers, CreateMetricsDict(), int.MaxValue,
+                () => LogParser.ParseStream(streamMock.Object, "env", readers, CreateMetricsDict(), int.MaxValue,
                     tokenSource.Token), tokenSource.Token);
             Thread.Sleep(StepDelay);
             Assert.That(task.Status, Is.EqualTo(TaskStatus.Running));
