@@ -3,11 +3,13 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using csv_prometheus_exporter.Parser;
 using csv_prometheus_exporter.Prometheus;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using NLog;
@@ -16,6 +18,8 @@ namespace csv_prometheus_exporter.Scraper
 {
     public class Startup
     {
+        private const string PrometheusContentType = "text/plain; version=0.0.4; charset=utf-8";
+
         private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
         public static readonly IDictionary<string, SSHLogScraper> Scrapers =
@@ -27,8 +31,14 @@ namespace csv_prometheus_exporter.Scraper
         // to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddRouting();
             services.AddResponseCompression();
+
+            services.AddResponseCompression(options =>
+            {
+                options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(new[] {PrometheusContentType});
+            });
+
+            services.AddRouting();
         }
 
         private static Task Collect(HttpContext context)
@@ -74,7 +84,7 @@ namespace csv_prometheus_exporter.Scraper
             var stopWatch = new Stopwatch();
             stopWatch.Start();
             // write the results
-            context.Response.Headers["Content-type"] = "text/plain; version=0.0.4; charset=utf-8";
+            context.Response.ContentType = PrometheusContentType;
             using (var textStream = new StreamWriter(context.Response.Body))
             {
                 var totalExposed = 0;
@@ -97,13 +107,14 @@ namespace csv_prometheus_exporter.Scraper
         // to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app)
         {
+            app.UseResponseCompression();
+
             var routeBuilder = new RouteBuilder(app);
 
             routeBuilder.MapGet("metrics", Collect);
             routeBuilder.MapGet("ping", context => context.Response.WriteAsync("pong"));
 
             app.UseRouter(routeBuilder.Build());
-            app.UseResponseCompression();
         }
     }
 }
