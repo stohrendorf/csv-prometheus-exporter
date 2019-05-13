@@ -28,6 +28,7 @@ namespace csv_prometheus_exporter.Scraper
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddRouting();
+            services.AddResponseCompression();
         }
 
         private static Task Collect(HttpContext context)
@@ -99,8 +100,10 @@ namespace csv_prometheus_exporter.Scraper
             var routeBuilder = new RouteBuilder(app);
 
             routeBuilder.MapGet("metrics", Collect);
+            routeBuilder.MapGet("ping", context => context.Response.WriteAsync("pong"));
 
             app.UseRouter(routeBuilder.Build());
+            app.UseResponseCompression();
         }
     }
 }

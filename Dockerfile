@@ -8,7 +8,7 @@ COPY . ./
 RUN dotnet test && dotnet publish -c Release -o out
 
 
-FROM microsoft/dotnet:2.1-aspnetcore-runtime-bionic
+FROM microsoft/dotnet:2.2-aspnetcore-runtime-bionic
 LABEL maintainer="Steffen Ohrendorf <steffen.ohrendorf@gmx.de>"
 
 # Stuff not strictly necessary, but helps to write dynamic inventory scripts,
@@ -24,3 +24,6 @@ COPY --from=build-env /app/out .
 EXPOSE 5000
 ENV ASPNETCORE_ENVIRONMENT="Production"
 ENTRYPOINT ["dotnet", "csv-prometheus-exporter.dll"]
+
+HEALTHCHECK --interval=5s --timeout=1s --start-period=10s \
+    CMD curl http://localhost:5000/ping || exit 1
