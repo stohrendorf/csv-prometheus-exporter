@@ -88,7 +88,7 @@ namespace csv_prometheus_exporter.Parser
                                 ((PipeStream) cmd.OutputStream).BlockLastReadBuffer = true;
                                 try
                                 {
-                                    LogParser.ParseStream(cmd.OutputStream, _environment, _readers, _metrics,
+                                    LogParser.ParseStream(cmd.OutputStream, _environment, _host, _readers, _metrics,
                                         _readTimeoutMs,
                                         CancellationTokenSource.Token);
 

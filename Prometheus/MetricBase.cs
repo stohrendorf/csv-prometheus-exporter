@@ -56,6 +56,12 @@ namespace csv_prometheus_exporter.Prometheus
         public static readonly MetricBase LinesParsed = new MetricBase("lines_parsed",
             "Number of successfully parsed lines", MetricsType.Counter, null, Resilience.LongTerm);
 
+        public static readonly MetricBase ParserErrorsPerTarget = new MetricBase("parser_errors_per_target",
+            "Number of lines which could not be parsed", MetricsType.Counter, null, Resilience.LongTerm);
+
+        public static readonly MetricBase LinesParsedPerTarget = new MetricBase("lines_parsed_per_target",
+            "Number of successfully parsed lines", MetricsType.Counter, null, Resilience.LongTerm);
+
         public static readonly MetricBase Connected = new MetricBase("connected",
             "Whether this target is currently being scraped", MetricsType.Gauge, null, Resilience.Zombie);
 

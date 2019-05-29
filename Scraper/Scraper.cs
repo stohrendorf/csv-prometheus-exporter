@@ -146,7 +146,7 @@ namespace csv_prometheus_exporter.Scraper
                         throw new Exception("'environment' is a reserved label name");
                 }
 
-                if (typeDef != "label" && (name == "parser_errors" || name == "lines_parsed"))
+                if (typeDef != "label" && (name == "parser_errors" || name == "lines_parsed" || name == "parser_errors_per_target" || name == "lines_parsed_per_target"))
                     throw new Exception($"'{name}' is a reserved metric name");
 
                 var type = typeDef;

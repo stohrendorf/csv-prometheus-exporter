@@ -94,6 +94,8 @@ namespace csv_prometheus_exporter.Scraper
                 totalExposed += MetricBase.Connected.ExposeTo(textStream);
                 totalExposed += MetricBase.LinesParsed.ExposeTo(textStream);
                 totalExposed += MetricBase.ParserErrors.ExposeTo(textStream);
+                totalExposed += MetricBase.LinesParsedPerTarget.ExposeTo(textStream);
+                totalExposed += MetricBase.ParserErrorsPerTarget.ExposeTo(textStream);
                 totalExposed += MetricBase.SSHBytesIn.ExposeTo(textStream);
 
                 ExposeProcessMetrics(textStream, totalExposed);

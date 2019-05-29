@@ -101,13 +101,15 @@ namespace csv_prometheus_exporter.Parser
                 Logger.Warn("Unknown reason for parsing cancellation");
         }
 
-        public static void ParseStream(Stream stream, string environment, IList<ColumnReader> readers,
+        public static void ParseStream(Stream stream, string environment, string target, IList<ColumnReader> readers,
             IDictionary<string, MetricBase> metrics, int msTimeout, CancellationToken cancellationToken)
         {
             if (string.IsNullOrEmpty(environment))
                 throw new ArgumentException("Environment must not be empty", nameof(environment));
 
             var envDict = new LabelDict(environment);
+            var envTargetDict = new LabelDict(environment);
+            envTargetDict.Set("target", target);
 
             foreach (var entry in new LogParser(stream, readers, environment).ReadAll(msTimeout, cancellationToken))
             {
@@ -117,10 +119,14 @@ namespace csv_prometheus_exporter.Parser
                         break;
 
                     MetricBase.ParserErrors.WithLabels(envDict).Add(1);
+                    MetricBase.ParserErrorsPerTarget.WithLabels(envTargetDict).Add(1);
                     continue;
                 }
 
                 MetricBase.LinesParsed.WithLabels(entry.Labels).Add(1);
+                var labels = new LabelDict(entry.Labels);
+                labels.Set("target", target);
+                MetricBase.LinesParsedPerTarget.WithLabels(labels).Add(1);
 
                 foreach (var (name, amount) in entry.Metrics)
                     metrics[name].WithLabels(entry.Labels).Add(amount);
@@ -144,6 +150,11 @@ namespace csv_prometheus_exporter.Parser
                 ["parser_errors"] = new MetricBase("parser_errors", "Number of lines which could not be parsed",
                     MetricsType.Counter),
                 ["lines_parsed"] = new MetricBase("lines_parsed", "Number of successfully parsed lines",
+                    MetricsType.Counter),
+                ["parser_errors_per_target"] = new MetricBase("parser_errors",
+                    "Number of lines which could not be parsed",
+                    MetricsType.Counter),
+                ["lines_parsed_per_target"] = new MetricBase("lines_parsed", "Number of successfully parsed lines",
                     MetricsType.Counter),
                 ["connected"] = new MetricBase("connected", "Whether this target is currently being scraped",
                     MetricsType.Gauge, null,
@@ -169,7 +180,7 @@ namespace csv_prometheus_exporter.Parser
             var sw = new Stopwatch();
             sw.Start();
             Assert.That(
-                () => LogParser.ParseStream(streamMock.Object, "env", readers, CreateMetricsDict(), 200,
+                () => LogParser.ParseStream(streamMock.Object, "env", "tgt", readers, CreateMetricsDict(), 200,
                     CancellationToken.None), Throws.TypeOf<StreamStarvationException>());
             sw.Stop();
             Assert.That(sw.Elapsed.TotalSeconds, Is.LessThan(ReadSleepSeconds));
@@ -190,7 +201,7 @@ namespace csv_prometheus_exporter.Parser
             var readers = new List<ColumnReader>();
             var tokenSource = new CancellationTokenSource();
             var task = Task.Run(
-                () => LogParser.ParseStream(streamMock.Object, "env", readers, CreateMetricsDict(), int.MaxValue,
+                () => LogParser.ParseStream(streamMock.Object, "env", "tgt", readers, CreateMetricsDict(), int.MaxValue,
                     tokenSource.Token), tokenSource.Token);
             Thread.Sleep(StepDelay);
             Assert.That(task.Status, Is.EqualTo(TaskStatus.Running));
