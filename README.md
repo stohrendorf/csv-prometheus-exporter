@@ -2,6 +2,8 @@
 
 [![Build Status](https://api.cirrus-ci.com/github/stohrendorf/csv-prometheus-exporter.svg)](https://cirrus-ci.com/github/stohrendorf/csv-prometheus-exporter)
 
+**Usecase:** If you have a service on many servers and want to expose throughput-like metrics with thousands of events per second to prometheus, and you can access the servers through SSH, this is for you. Just add a CSV-like log writer to your software, attach this exporter to the servers, and attach Prometheus to this service. Instead of transferring megabytes of Prometheus protocol data over the network, this service extracts and accummulates metrics incrementally from the attached services, reducing traffic to a fraction. The time-resolution precision of the metrics is only based on the sampling frequency.
+
 A simple exporter for CSV-based files[*].  Basically runs "tail -f" on remote files over SSH and aggregates
 them into Prometheus compatible metrics. It is capable of processing at least 100 servers with thousands of
 requests per second on a small VM (peak usage 8 cores, average usage 2 cores, average RAM usage below 200MB,
