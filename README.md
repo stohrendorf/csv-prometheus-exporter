@@ -4,12 +4,9 @@
 
 **Usecase:** If you have a service on many servers and want to expose throughput-like metrics with thousands of events per second to prometheus, and you can access the servers through SSH, this is for you. Just add a CSV-like log writer to your software, attach this exporter to the servers, and attach Prometheus to this service. Instead of transferring megabytes of Prometheus protocol data over the network, this service extracts and accummulates metrics incrementally from the attached services, reducing traffic to a fraction. The time-resolution precision of the metrics is only based on the sampling frequency.
 
-A simple exporter for CSV-based files[*].  Basically runs "tail -f" on remote files over SSH and aggregates
-them into Prometheus compatible metrics. It is capable of processing at least 100 servers with thousands of
-requests per second on a small VM (peak usage 8 cores, average usage 2 cores, average RAM usage below 200MB,
-average incoming SSH traffic below 400kB/s, not including resource requirements for Prometheus itself).
+It is capable of processing at least 100 servers with thousands of requests per second on a small VM (peak usage 16 cores, average usage 4 cores, average RAM usage below 300MB, average incoming SSH traffic below 600kB/s, not including resource requirements for Prometheus itself).
 
-> [*] CSV in this case means "space-separated, double-quote delimited format"; this piece of software was primarily
+> "CSV-like" in this case means "space-separated, double-quote delimited format"; this piece of software was primarily
 > developed for parsing access logs, but if needed, it can be extended to parse any CSV-based format that
 > [FastCsvParser](https://github.com/bopohaa/CsvParser) can handle.
 
