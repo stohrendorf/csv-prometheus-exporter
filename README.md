@@ -1,6 +1,7 @@
 # CSV Prometheus Exporter
 
 [![Build Status](https://api.cirrus-ci.com/github/stohrendorf/csv-prometheus-exporter.svg)](https://cirrus-ci.com/github/stohrendorf/csv-prometheus-exporter)
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fstohrendorf%2Fcsv-prometheus-exporter.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fstohrendorf%2Fcsv-prometheus-exporter?ref=badge_shield)
 
 **Usecase:** If you have a service on many servers and want to expose throughput-like metrics with thousands of events per second to prometheus, and you can access the servers through SSH, this is for you. Just add a CSV-like log writer to your software, attach this exporter to the servers, and attach Prometheus to this service. Instead of transferring megabytes of Prometheus protocol data over the network, this service extracts and accummulates metrics incrementally from the attached services, reducing traffic to a fraction. The time-resolution precision of the metrics is only based on the sampling frequency.
 
@@ -149,3 +150,7 @@ groups:
   - record: "prefix:request_time_per_second"
     expr: "irate(prefix:request_time_total[1m])"
 ```
+
+
+## License
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fstohrendorf%2Fcsv-prometheus-exporter.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fstohrendorf%2Fcsv-prometheus-exporter?ref=badge_large)
