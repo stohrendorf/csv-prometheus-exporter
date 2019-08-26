@@ -146,7 +146,8 @@ namespace csv_prometheus_exporter.Scraper
                         throw new Exception("'environment' is a reserved label name");
                 }
 
-                if (typeDef != "label" && (name == "parser_errors" || name == "lines_parsed" || name == "parser_errors_per_target" || name == "lines_parsed_per_target"))
+                if (typeDef != "label" && (name == "parser_errors" || name == "lines_parsed" ||
+                                           name == "parser_errors_per_target" || name == "lines_parsed_per_target"))
                     throw new Exception($"'{name}' is a reserved metric name");
 
                 var type = typeDef;
@@ -191,9 +192,18 @@ namespace csv_prometheus_exporter.Scraper
             ServicePointManager.DefaultConnectionLimit = 1;
 
             ThreadPool.GetMinThreads(out var a, out var b);
-            Logger.Debug($"Current min threads: {a}, {b}");
-            if (!ThreadPool.SetMinThreads(1024, 128))
-                throw new Exception("Failed to set minimum thread count");
+            Logger.Info($"Current threadpool min threads: worker={a}, completionPort={b}");
+            if (Environment.ProcessorCount > 0)
+            {
+                if (!ThreadPool.SetMinThreads(64 * Environment.ProcessorCount, 32 * Environment.ProcessorCount))
+                    throw new Exception("Failed to set minimum thread count");
+                ThreadPool.GetMinThreads(out a, out b);
+                Logger.Info($"New threadpool min threads: worker={a}, completionPort={b}");
+            }
+            else
+            {
+                Logger.Warn("Failed to determine logical processeor count, threadpool threads unchanged");
+            }
 
             var scrapeConfig = ReadCoreConfig(out var readers);
             var scrapers = new Dictionary<string, SSHLogScraper>();
