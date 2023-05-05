@@ -1,17 +1,15 @@
 using System.Collections.Generic;
 using csv_prometheus_exporter.Prometheus;
-using JetBrains.Annotations;
 
-namespace csv_prometheus_exporter.Parser
+namespace csv_prometheus_exporter.Parser;
+
+public sealed class ParsedMetrics
 {
-    public class ParsedMetrics
-    {
-        public readonly LabelDict Labels;
-        public readonly IDictionary<string, double> Metrics = new Dictionary<string, double>(31);
+  internal readonly LabelDict Labels;
+  internal readonly IDictionary<string, double> Metrics = new Dictionary<string, double>(31);
 
-        public ParsedMetrics([NotNull] LabelDict labels)
-        {
-            Labels = new LabelDict(labels);
-        }
-    }
+  internal ParsedMetrics(LabelDict labels)
+  {
+    Labels = new LabelDict(labels);
+  }
 }

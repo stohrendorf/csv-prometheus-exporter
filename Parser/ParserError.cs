@@ -1,8 +1,7 @@
 using System;
 
-namespace csv_prometheus_exporter.Parser
+namespace csv_prometheus_exporter.Parser;
+
+public class ParserError : Exception
 {
-    public class ParserError : Exception
-    {
-    }
 }

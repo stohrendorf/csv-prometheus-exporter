@@ -1,10 +1,9 @@
-namespace csv_prometheus_exporter.Prometheus
+namespace csv_prometheus_exporter.Prometheus;
+
+public enum MetricsType
 {
-    public enum MetricsType
-    {
-        Counter,
-        Gauge,
-        Histogram,
-        Summary
-    }
+  Counter,
+  Gauge,
+  Histogram,
+  Summary,
 }
