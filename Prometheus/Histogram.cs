@@ -29,7 +29,7 @@ internal sealed class Histogram : LabeledMetric
     : base(metricBase, labels)
   {
     Debug.Assert(metricBase.Type == MetricsType.Histogram);
-    _buckets = buckets.OrderBy(static _ => _).ToArray();
+    _buckets = buckets.OrderBy(static bucket => bucket).ToArray();
     if (_buckets.Length == 0)
     {
       _buckets = DefaultBuckets;

@@ -27,7 +27,7 @@ internal sealed class SSHLogScraper
 
   public readonly CancellationTokenSource CancellationTokenSource = new();
 
-  public Thread Thread;
+  public Thread? Thread = null;
 
   public SSHLogScraper(string filename, string environment, IList<ColumnReader> readers, string host, string user,
     string password, string pkey, int connectTimeout, int readTimeoutMs,

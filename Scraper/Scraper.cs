@@ -216,7 +216,7 @@ file static class Scraper
 
   private static void Main(string[] args)
   {
-    NLogBuilder.ConfigureNLog("nlog.config");
+    LogManager.Setup().RegisterNLogWeb().LoadConfigurationFromFile("nlog.config", false);
     ServicePointManager.DefaultConnectionLimit = 1;
 
     ThreadPool.GetMinThreads(out var a, out var b);

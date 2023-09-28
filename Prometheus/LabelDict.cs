@@ -47,7 +47,7 @@ public sealed class LabelDict
 
   internal string? Get(string? key)
   {
-    return _labels.Where(_ => _.Key == key).Select(static _ => _.Value).SingleOrDefault();
+    return _labels.Where(label => label.Key == key).Select(static label => label.Value).SingleOrDefault();
   }
 
   private bool Equals(LabelDict other)
