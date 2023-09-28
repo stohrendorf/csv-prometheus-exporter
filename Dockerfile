@@ -1,4 +1,4 @@
-FROM microsoft/dotnet:sdk AS build-env
+FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build-env
 WORKDIR /app
 
 COPY *.csproj ./
@@ -7,8 +7,7 @@ RUN dotnet restore
 COPY . ./
 RUN dotnet test && dotnet publish -c Release -o out
 
-
-FROM microsoft/dotnet:2.2-aspnetcore-runtime-bionic
+FROM mcr.microsoft.com/dotnet/aspnet:7.0
 LABEL maintainer="Steffen Ohrendorf <steffen.ohrendorf@gmx.de>"
 
 # Stuff not strictly necessary, but helps to write dynamic inventory scripts,
